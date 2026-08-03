@@ -1,0 +1,16 @@
+[Unit]
+Description=QR Code Socket Server
+After=multi-user.target
+
+[Service]
+Type=simple
+# Adjust the path below to wherever you install the script
+ExecStart=/usr/bin/python3 /opt/qr_socket_app/qr_socket_server.py --port 6789
+Restart=on-failure
+RestartSec=2
+User=your_username
+# Needed if your camera device requires video group permissions
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target
