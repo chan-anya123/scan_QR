@@ -8,6 +8,7 @@ server implementations are included:
 |---|---|---|
 | `qr_http_server.py` | HTTP (Flask) | Postman, curl, browsers, most integrations |
 | `qr_socket_server_tcp.py` | Raw TCP + JSON lines | Lightweight embedded clients, no HTTP stack needed |
+| `qr_mqtt_server.py` | MQTT pub/sub | IoT setups, broker-based architectures, multiple subscribers |
 
 Both share the same camera-handling and retry logic — pick whichever
 transport fits your client. **The HTTP version is recommended** since
@@ -145,6 +146,112 @@ Use the HTTP server above if Postman testing matters to you.
 
 ---
 
+## MQTT server (for IoT / broker-based setups)
+
+Unlike the HTTP and TCP versions, MQTT is publish/subscribe rather
+than request/response: a client **publishes** a read request to a
+command topic, and the server **publishes** the result to a separate
+response topic. Any number of clients can subscribe to the response
+topic at once.
+
+### Install and run a local broker (for testing)
+
+If you don't already have an MQTT broker, Mosquitto is the simplest to run locally:
+
+```bash
+sudo apt install mosquitto mosquitto-clients
+sudo systemctl enable --now mosquitto
+```
+
+This starts a broker on `localhost:1883`. For production, point
+`--broker-host` / `--broker-port` at whatever broker you actually use
+(Mosquitto, HiveMQ, AWS IoT Core, etc.), with `--username` /
+`--password` if it requires auth.
+
+### Run it
+
+```bash
+python3 qr_mqtt_server.py --broker-host localhost --broker-port 1883
+```
+
+| Flag | Default | Description |
+|---|---|---|
+| `--broker-host` | `localhost` | MQTT broker address |
+| `--broker-port` | `1883` | MQTT broker port |
+| `--client-id` | `qr_mqtt_server` | MQTT client ID |
+| `--username` / `--password` | none | Broker auth, if required |
+| `--qos` | `1` | MQTT QoS level (0/1/2) |
+| `--command-topic` | `qr/read` | Topic clients publish read requests to |
+| `--result-topic` | `qr/result` | Topic the server publishes results to |
+| `--ping-topic` / `--pong-topic` | `qr/ping` / `qr/pong` | Liveness check topics |
+| `--camera-index`, `--width`, `--height`, `--retries`, `--retry-interval` | same as HTTP server | Camera and retry behavior |
+
+### Topics and payloads
+
+**Trigger a read** — publish to `qr/read` (payload optional):
+
+```json
+{"retries": 3, "retry_interval": 0.2, "request_id": "any-string-you-choose"}
+```
+
+An empty payload just uses the server's configured defaults.
+
+**Result** — the server publishes to `qr/result`:
+
+```json
+{"status": "ok", "data": "<decoded_text>", "request_id": "..."}
+{"status": "no_qr", "request_id": "..."}
+{"status": "error", "message": "<details>", "request_id": "..."}
+```
+
+`request_id` is only included if you sent one — it's just echoed back
+so you can match a specific request to its result when multiple
+clients share the same topics.
+
+> **Note:** Postman does support MQTT natively (unlike raw TCP), so
+> you can also drive this server from Postman — create an MQTT request,
+> connect to your broker, subscribe to `qr/result`, then publish `{}`
+> to `qr/read`.
+
+**Liveness check** — publish anything to `qr/ping`, server replies on `qr/pong` with `{"status": "pong"}`.
+
+### Using it from the command line (mosquitto-clients)
+
+```bash
+# Terminal 1: listen for the result
+mosquitto_sub -h localhost -t qr/result
+
+# Terminal 2: trigger a read
+mosquitto_pub -h localhost -t qr/read -m '{}'
+```
+
+### Using it from Python
+
+```bash
+python3 qr_mqtt_client_example.py --broker-host localhost --command read
+```
+
+```python
+import json, time, paho.mqtt.client as mqtt
+
+result = {}
+
+def on_message(client, userdata, msg):
+    result.update(json.loads(msg.payload))
+
+client = mqtt.Client()
+client.on_message = on_message
+client.connect("localhost", 1883)
+client.subscribe("qr/result")
+client.loop_start()
+
+client.publish("qr/read", "{}")
+time.sleep(2)  # wait for the response to arrive
+print(result)
+```
+
+---
+
 ## Running as a systemd service
 
 **HTTP version:**
@@ -170,6 +277,21 @@ journalctl -u qr-http-server -f
 
 (The raw TCP version follows the same pattern — see `qr_socket_server_tcp.py` and adapt the service file accordingly.)
 
+**MQTT version:**
+
+```bash
+sudo mkdir -p /opt/qr-mqtt-server
+sudo cp qr_mqtt_server.py /opt/qr-mqtt-server/
+sudo cp systemd/qr-mqtt-server.service /etc/systemd/system/
+
+# edit the service file: set User=<your_linux_username> and broker host/port if not local
+sudo nano /etc/systemd/system/qr-mqtt-server.service
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now qr-mqtt-server
+sudo systemctl status qr-mqtt-server
+```
+
 ## How retries work
 
 Each read grabs a fresh frame per attempt (not just re-decoding the
@@ -190,7 +312,12 @@ you want to give someone to hold a code up to the camera.
   installed via apt, not just the `pyzbar` pip package.
 - **Postman can't connect** — make sure you're hitting the HTTP
   server (`qr_http_server.py`, default port `8080`), not the raw TCP
-  one (default port `6789`).
+  one (default port `6789`). For MQTT, Postman connects to your
+  broker (e.g. `localhost:1883`), not to `qr_mqtt_server.py` directly.
+- **MQTT: no response on `qr/result`** — confirm the broker is running
+  (`sudo systemctl status mosquitto`) and that `qr_mqtt_server.py`
+  logged a successful connection. Also check `--command-topic` /
+  `--result-topic` match on both the publisher and `qr_mqtt_server.py`.
 
 ## License
 

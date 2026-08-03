@@ -1,0 +1,17 @@
+[Unit]
+Description=QR Code MQTT Server
+After=multi-user.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the path below to wherever you install the script
+ExecStart=/usr/bin/python3 /opt/qr-mqtt-server/qr_mqtt_server.py --broker-host localhost --broker-port 1883
+Restart=on-failure
+RestartSec=2
+User=your_username
+# Needed if your camera device requires video group permissions
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target
