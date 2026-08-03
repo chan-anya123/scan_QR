@@ -94,6 +94,23 @@ with socket.create_connection(("127.0.0.1", 6789), timeout=5) as sock:
     print(response)
 ```
 
+### Note on Postman
+
+Postman doesn't support raw TCP sockets — it supports HTTP, WebSocket,
+Socket.IO, gRPC, and MQTT, but plain TCP is still an [open feature
+request](https://github.com/postmanlabs/postman-app-support/issues/12253)
+with no ETA. Since this server speaks raw JSON-over-TCP (not HTTP or
+WebSocket), you can't point Postman directly at it.
+
+If you want to test/drive this from Postman anyway, you have two options:
+
+1. **Use the provided client / netcat instead** (see above) — simplest, no extra moving parts.
+2. **Add a thin HTTP-to-TCP bridge** — a tiny Flask/FastAPI endpoint that
+   opens a socket to `qr_socket_server.py`, forwards the request, and
+   returns the JSON response over HTTP. Then Postman just calls that
+   HTTP endpoint normally. Open an issue/PR if you'd like a ready-made
+   bridge script added to this repo.
+
 ## Running as a systemd service
 
 ```bash
