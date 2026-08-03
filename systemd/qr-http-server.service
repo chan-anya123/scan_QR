@@ -1,11 +1,11 @@
 [Unit]
-Description=QR Code Socket Server
+Description=QR Code HTTP Server
 After=multi-user.target
 
 [Service]
 Type=simple
 # Adjust the path below to wherever you install the script
-ExecStart=/usr/bin/python3 /opt/qr_socket_app/qr_socket_server.py --port 6789
+ExecStart=/usr/bin/python3 /opt/qr-http-server/qr_http_server.py --port 8080
 Restart=on-failure
 RestartSec=2
 User=your_username

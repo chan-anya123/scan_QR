@@ -1,18 +1,25 @@
 # qr-socket-server
 
 A standalone Ubuntu application (no ROS required) that keeps a webcam
-open and listens on a TCP socket for JSON commands. Send it a `read`
-command and it checks the current camera frame for a QR code — retrying
-a few times if nothing is found on the first try — then sends the raw
-decoded QR data straight back over the socket.
+open and exposes an on-demand QR-code reader. Two interchangeable
+server implementations are included:
+
+| File | Transport | Best for |
+|---|---|---|
+| `qr_http_server.py` | HTTP (Flask) | Postman, curl, browsers, most integrations |
+| `qr_socket_server_tcp.py` | Raw TCP + JSON lines | Lightweight embedded clients, no HTTP stack needed |
+
+Both share the same camera-handling and retry logic — pick whichever
+transport fits your client. **The HTTP version is recommended** since
+it works directly with Postman and virtually any HTTP tooling.
 
 ## Features
 
 - Camera is opened once at startup and reused for every request (fast, no re-init per call)
-- Simple JSON-over-TCP protocol, easy to call from any language
-- Configurable retry count/interval per `read` request
+- Configurable retry count/interval per read request (grabs a fresh frame each attempt)
 - Thread-safe: multiple clients can connect; camera access is serialized internally
-- Ships with a systemd unit so it can run as a background service on boot
+- Ships with systemd units so either server can run as a background service on boot
+- Includes a ready-to-import Postman collection
 
 ## Requirements
 
@@ -31,116 +38,147 @@ sudo apt install python3-opencv python3-pip libzbar0
 pip3 install -r requirements.txt
 ```
 
-## Usage
+---
 
-Run the server:
+## HTTP server (Postman-friendly) — recommended
+
+### Run it
 
 ```bash
-python3 qr_socket_server.py --port 6789 --camera-index 0
+python3 qr_http_server.py --port 8080 --camera-index 0
 ```
-
-### Command-line options
 
 | Flag | Default | Description |
 |---|---|---|
 | `--host` | `0.0.0.0` | Bind address |
-| `--port` | `6789` | TCP port |
+| `--port` | `8080` | HTTP port |
 | `--camera-index` | `0` | OpenCV camera index (`/dev/videoN`) |
-| `--width` | none | Force capture width |
-| `--height` | none | Force capture height |
-| `--retries` | `3` | Frame attempts per `read` command before giving up |
-| `--retry-interval` | `0.2` | Seconds between retry attempts |
+| `--width` / `--height` | none | Force capture resolution |
+| `--retries` | `3` | Default frame attempts per `/read` call before giving up |
+| `--retry-interval` | `0.2` | Default seconds between retry attempts |
 
-## Protocol
+### Endpoints
 
-Newline-delimited JSON over TCP — one JSON object per line, in both directions.
-
-**Commands (client → server):**
+**`GET /ping`**
 
 ```json
-{"command": "read"}
-{"command": "ping"}
-{"command": "quit"}
+200 {"status": "pong"}
 ```
 
-**Responses (server → client):**
+**`POST /read`**
+
+Optional JSON body to override the server's defaults for this call:
 
 ```json
-{"status": "ok", "data": "<decoded_text>"}
-{"status": "no_qr"}
-{"status": "error", "message": "<details>"}
-{"status": "pong"}
+{"retries": 5, "retry_interval": 0.3}
 ```
 
-### Example: netcat
+Responses:
+
+```json
+200 {"status": "ok", "data": "<decoded_text>"}
+200 {"status": "no_qr"}
+500 {"status": "error", "message": "<details>"}
+```
+
+### Using it from Postman
+
+1. Open Postman → **Import** → select `postman_collection.json` from this repo.
+2. The collection has a `base_url` variable (defaults to `http://localhost:8080`) — edit it if your server runs elsewhere.
+3. Run **Ping** to confirm connectivity, then **Read QR Code** to trigger a read. The retry settings in the request body are optional — remove them to use the server's `--retries` / `--retry-interval` defaults.
+
+### Using it from curl
+
+```bash
+curl http://localhost:8080/ping
+
+curl -X POST http://localhost:8080/read \
+  -H "Content-Type: application/json" \
+  -d '{"retries": 3, "retry_interval": 0.2}'
+```
+
+### Using it from Python
+
+```bash
+python3 qr_client_example.py --host 127.0.0.1 --port 8080 --command read
+```
+
+```python
+import requests
+
+resp = requests.post("http://127.0.0.1:8080/read", json={"retries": 3})
+print(resp.json())
+```
+
+---
+
+## Raw TCP server (alternative, no HTTP stack needed)
+
+For lightweight clients that shouldn't need an HTTP library, `qr_socket_server_tcp.py` speaks newline-delimited JSON directly over a TCP socket.
+
+```bash
+python3 qr_socket_server_tcp.py --port 6789 --camera-index 0
+```
+
+Same `--retries` / `--retry-interval` flags apply. Protocol:
+
+```json
+Client -> Server:  {"command": "read"}
+Server -> Client:  {"status": "ok", "data": "<text>"} | {"status": "no_qr"}
+
+Client -> Server:  {"command": "ping"}
+Server -> Client:  {"status": "pong"}
+```
+
+Quick test:
 
 ```bash
 nc localhost 6789
 {"command": "read"}
 ```
 
-### Example: Python client
+Postman does not support raw TCP sockets (it covers HTTP, WebSocket,
+Socket.IO, gRPC, and MQTT, but plain TCP remains an unresolved [open
+feature
+request](https://github.com/postmanlabs/postman-app-support/issues/12253)).
+Use the HTTP server above if Postman testing matters to you.
 
-```bash
-python3 qr_client_example.py --host 127.0.0.1 --port 6789 --command read
-```
-
-```python
-import json, socket
-
-with socket.create_connection(("127.0.0.1", 6789), timeout=5) as sock:
-    sock.sendall((json.dumps({"command": "read"}) + "\n").encode())
-    response = json.loads(sock.makefile("r").readline())
-    print(response)
-```
-
-### Note on Postman
-
-Postman doesn't support raw TCP sockets — it supports HTTP, WebSocket,
-Socket.IO, gRPC, and MQTT, but plain TCP is still an [open feature
-request](https://github.com/postmanlabs/postman-app-support/issues/12253)
-with no ETA. Since this server speaks raw JSON-over-TCP (not HTTP or
-WebSocket), you can't point Postman directly at it.
-
-If you want to test/drive this from Postman anyway, you have two options:
-
-1. **Use the provided client / netcat instead** (see above) — simplest, no extra moving parts.
-2. **Add a thin HTTP-to-TCP bridge** — a tiny Flask/FastAPI endpoint that
-   opens a socket to `qr_socket_server.py`, forwards the request, and
-   returns the JSON response over HTTP. Then Postman just calls that
-   HTTP endpoint normally. Open an issue/PR if you'd like a ready-made
-   bridge script added to this repo.
+---
 
 ## Running as a systemd service
 
+**HTTP version:**
+
 ```bash
-sudo mkdir -p /opt/qr-socket-server
-sudo cp qr_socket_server.py /opt/qr-socket-server/
-sudo cp systemd/qr-socket-server.service /etc/systemd/system/
+sudo mkdir -p /opt/qr-http-server
+sudo cp qr_http_server.py /opt/qr-http-server/
+sudo cp systemd/qr-http-server.service /etc/systemd/system/
 
 # edit the service file: set User=<your_linux_username>
-sudo nano /etc/systemd/system/qr-socket-server.service
+sudo nano /etc/systemd/system/qr-http-server.service
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now qr-socket-server
-sudo systemctl status qr-socket-server
+sudo systemctl enable --now qr-http-server
+sudo systemctl status qr-http-server
 ```
 
 View logs:
 
 ```bash
-journalctl -u qr-socket-server -f
+journalctl -u qr-http-server -f
 ```
+
+(The raw TCP version follows the same pattern — see `qr_socket_server_tcp.py` and adapt the service file accordingly.)
 
 ## How retries work
 
-Each `read` request grabs a fresh frame per attempt (not just
-re-decoding the same image), checking up to `--retries` times
-(default 3, ~0.2s apart) before replying `{"status": "no_qr"}`. With
-defaults, a `read` call takes at most roughly 0.4–0.6 seconds if
-nothing is in view. Tune `--retries` / `--retry-interval` to trade off
-responsiveness against how much time you want to give someone to hold
-a code up to the camera.
+Each read grabs a fresh frame per attempt (not just re-decoding the
+same image), checking up to `retries` times (default 3, ~0.2s apart)
+before reporting no QR code found. With defaults, a request takes at
+most roughly 0.4–0.6 seconds if nothing is in view. Tune `retries` /
+`retry_interval` (via CLI flags for server-wide defaults, or per-request
+in the `/read` body) to trade off responsiveness against how much time
+you want to give someone to hold a code up to the camera.
 
 ## Troubleshooting
 
@@ -150,6 +188,9 @@ a code up to the camera.
 - **Permission denied on `/dev/video0`** — same fix as above.
 - **`ModuleNotFoundError: pyzbar`** — make sure `libzbar0` is
   installed via apt, not just the `pyzbar` pip package.
+- **Postman can't connect** — make sure you're hitting the HTTP
+  server (`qr_http_server.py`, default port `8080`), not the raw TCP
+  one (default port `6789`).
 
 ## License
 

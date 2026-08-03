@@ -2,45 +2,50 @@
 """
 qr_client_example.py
 
-Minimal example client for qr_socket_server.py (JSON protocol).
+Minimal example client for qr_http_server.py.
 
 Usage:
-    python3 qr_client_example.py                # sends "read", prints result
-    python3 qr_client_example.py --host 192.168.1.50 --port 6789
+    python3 qr_client_example.py
+    python3 qr_client_example.py --host 192.168.1.50 --port 8080
     python3 qr_client_example.py --command ping
 """
 
 import argparse
 import json
-import socket
 
-
-def send_command(host: str, port: int, command: str, recv_timeout: float = 5.0) -> dict:
-    with socket.create_connection((host, port), timeout=5.0) as sock:
-        sock.settimeout(recv_timeout)
-        request = json.dumps({"command": command}) + "\n"
-        sock.sendall(request.encode("utf-8"))
-        line = sock.makefile("r").readline().strip()
-        return json.loads(line)
+import requests
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Example client for the QR socket server")
+    parser = argparse.ArgumentParser(description="Example client for the QR HTTP server")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=6789)
-    parser.add_argument("--command", default="read", help="read | ping | quit")
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--command", default="read", choices=["read", "ping"])
+    parser.add_argument("--retries", type=int, default=None)
+    parser.add_argument("--retry-interval", type=float, default=None)
     args = parser.parse_args()
 
-    response = send_command(args.host, args.port, args.command)
-    print(f"Server response: {response}")
+    base_url = f"http://{args.host}:{args.port}"
 
-    status = response.get("status")
-    if status == "ok":
-        print(f"Decoded QR data: {response['data']}")
-    elif status == "no_qr":
-        print("No QR code found in the current frame.")
-    elif status == "error":
-        print(f"Server error: {response.get('message')}")
+    if args.command == "ping":
+        resp = requests.get(f"{base_url}/ping", timeout=5)
+    else:
+        body = {}
+        if args.retries is not None:
+            body["retries"] = args.retries
+        if args.retry_interval is not None:
+            body["retry_interval"] = args.retry_interval
+        resp = requests.post(f"{base_url}/read", json=body, timeout=15)
+
+    data = resp.json()
+    print(f"HTTP {resp.status_code}: {json.dumps(data)}")
+
+    if data.get("status") == "ok":
+        print(f"Decoded QR data: {data['data']}")
+    elif data.get("status") == "no_qr":
+        print("No QR code found after retries.")
+    elif data.get("status") == "error":
+        print(f"Server error: {data.get('message')}")
 
 
 if __name__ == "__main__":
