@@ -1,324 +1,288 @@
-# qr-socket-server
+# QR HTTP Server & Vision Inspection Engine
 
-A standalone Ubuntu application (no ROS required) that keeps a webcam
-open and exposes an on-demand QR-code reader. Two interchangeable
-server implementations are included:
+A high-performance, standalone Linux/Ubuntu vision application (no ROS required) designed for industrial robots, automated guided vehicles (AGVs/AMRs), and vision inspection stations. Runs hardware camera capture in a dedicated zero-latency background thread via explicit V4L2 capture and exposes instant on-demand QR code decoding via HTTP REST API and a modern pastel web dashboard.
 
-| File | Transport | Best for |
-|---|---|---|
-| `qr_http_server.py` | HTTP (Flask) | Postman, curl, browsers, most integrations |
-| `qr_socket_server_tcp.py` | Raw TCP + JSON lines | Lightweight embedded clients, no HTTP stack needed |
-| `qr_mqtt_server.py` | MQTT pub/sub | IoT setups, broker-based architectures, multiple subscribers |
+> **Main Application Script**: [`qr_http_server.py`](file:///home/cookies/qr-socket-server/qr_http_server.py)  
+> **Default Port**: `5050` | **Default Host**: `0.0.0.0` (accessible across network/robot network)
 
-Both share the same camera-handling and retry logic — pick whichever
-transport fits your client. **The HTTP version is recommended** since
-it works directly with Postman and virtually any HTTP tooling.
+---
 
-## Features
+## Key Features
 
-- Camera is opened once at startup and reused for every request (fast, no re-init per call)
-- Configurable retry count/interval per read request (grabs a fresh frame each attempt)
-- Thread-safe: multiple clients can connect; camera access is serialized internally
-- Ships with systemd units so either server can run as a background service on boot
-- Includes a ready-to-import Postman collection
+- **Ultra-Fast On-Demand QR Reading**: Continuous background capture thread drains frames via `cv2.CAP_V4L2` without queue lag, feeding fresh frames to PyZbar with grayscale fallback decoding.
+- **Automatic Camera Reconnection**: Capture loop automatically handles camera disconnection and reconnects seamlessly. Recovers cleanly after consecutive frame grab failures.
+- **Intelligent Video Device Detection**: Scans and parses `v4l2-ctl` to verify `Video Capture` capabilities, automatically filtering out non-capture metadata nodes (`/dev/video1`, `/dev/video3`) and exposing only true video streams.
+- **Automated Hardware Autofocus Suppression**: Automatically disables continuous autofocus on initialisation and live camera switching via V4L2 kernel controls (`focus_automatic_continuous=0`, `focus_auto=0`) to prevent focus hunting during robot movement.
+- **Per-Camera Isolated Setup Persistence**: Dedicated configuration files per camera index (`camera_setup_cam0.json`, `camera_setup_cam2.json`, `camera_setup_cam4.json`) automatically saved and loaded during live camera switching.
+- **Smart Auto-Adjust & Anti-Overexposure**: Baseline histogram luminance analysis (~120–130 target) with pure software scaling (`cv2.convertScaleAbs`), protecting hardware contrast registers and turning off `backlight_compensation=0` on webcams like Logitech C270.
+- **Dynamic Hardware Factory Reset**: Queries physical manufacturer default registers via `v4l2-ctl` and dynamically restores hardware controls and software sliders to defaults.
+- **Multi-Station Setup Profiles**: Save and load named station tuning profiles (`camera_setups/Point_1.json`, `camera_setups/Station_B.json`).
+- **Per-QR-Type Overwrite Capture Storage**: Draws green bounding polygon and sleek metadata badge (QR text + timestamp), saving snapshots to `captures/qr_<CONTENT>.jpg` (overwriting older images of the same QR code to prevent disk exhaustion).
+- **Pastel Modern Web UI**: Responsive pastel-themed dashboard (`Plus Jakarta Sans` typography, centered navigation tabs) with live video preview, real-time sliders, and capture downloads.
+- **Browser-based OTA Code Updater**: Upload updated Python code live via web UI or API with pre-validation syntax checking (`compile()`), automatic rollback backup (`qr_http_server.py.bak`), and background service restart.
 
-## Requirements
+---
 
-- Ubuntu (or any Linux with a video device and Python 3)
+## Installation & Requirements
+
+### System Requirements
+- Ubuntu 20.04 / 22.04 / 24.04 (or any Linux distribution with V4L2 support)
 - Python 3.8+
-- A camera accessible via OpenCV (e.g. `/dev/video0`)
+- Connected USB Webcams or UVC Video Devices (e.g. `/dev/video0`, `/dev/video2`, `/dev/video4`)
 
-## Installation
+### Setup Instructions
 
 ```bash
-git clone https://github.com/your_username/qr-socket-server.git
-cd qr-socket-server
+# 1. Clone repository
+git clone git@github.com:nextroboticslab/qr-http-server.git
+cd qr-http-server
+# หรือ HTTPS: git clone https://github.com/nextroboticslab/qr-http-server.git
 
+# 2. Install Linux system packages (v4l-utils and ZBar C library)
 sudo apt update
-sudo apt install python3-opencv python3-pip libzbar0
-pip3 install -r requirements.txt
+sudo apt install -y v4l-utils libzbar0
+
+# 3. Create virtual environment and install dependencies
+python3 -m venv env
+source env/bin/activate
+pip install -r requirements.txt
 ```
 
 ---
 
-## HTTP server (Postman-friendly) — recommended
+## Quick Start & CLI Options
 
-### Run it
-
-```bash
-python3 qr_http_server.py --port 8080 --camera-index 0
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--host` | `0.0.0.0` | Bind address |
-| `--port` | `8080` | HTTP port |
-| `--camera-index` | `0` | OpenCV camera index (`/dev/videoN`) |
-| `--width` / `--height` | none | Force capture resolution |
-| `--retries` | `3` | Default frame attempts per `/read` call before giving up |
-| `--retry-interval` | `0.2` | Default seconds between retry attempts |
-
-### Endpoints
-
-**`GET /ping`**
-
-```json
-200 {"status": "pong"}
-```
-
-**`POST /read`**
-
-Optional JSON body to override the server's defaults for this call:
-
-```json
-{"retries": 5, "retry_interval": 0.3}
-```
-
-Responses:
-
-```json
-200 {"status": "ok", "data": "<decoded_text>"}
-200 {"status": "no_qr"}
-500 {"status": "error", "message": "<details>"}
-```
-
-### Using it from Postman
-
-1. Open Postman → **Import** → select `postman_collection.json` from this repo.
-2. The collection has a `base_url` variable (defaults to `http://localhost:8080`) — edit it if your server runs elsewhere.
-3. Run **Ping** to confirm connectivity, then **Read QR Code** to trigger a read. The retry settings in the request body are optional — remove them to use the server's `--retries` / `--retry-interval` defaults.
-
-### Using it from curl
+### Running the Server
 
 ```bash
-curl http://localhost:8080/ping
+# Run on default port 5050 (auto-detects first valid video device)
+./env/bin/python3 qr_http_server.py
 
-curl -X POST http://localhost:8080/read \
+# Or specify custom port, camera device, and resolution
+./env/bin/python3 qr_http_server.py --port 5050 --camera-index 0 --width 640 --height 480
+```
+
+Once started, open **`http://<server-ip>:5050/`** (or `http://localhost:5050/`) in your browser.
+
+### Command Line Arguments
+
+All arguments supported by [`qr_http_server.py`](file:///home/cookies/qr-socket-server/qr_http_server.py):
+
+| Argument | Type | Default | Description |
+|---|---|---|---|
+| `--host` | `str` | `0.0.0.0` | Bind address for the HTTP server |
+| `--port` | `int` | `5050` | HTTP listening port |
+| `--camera-index` | `int` | `None` | OpenCV camera index (default: auto-detects first valid video capture stream) |
+| `--width` | `int` | `640` | Camera capture frame width |
+| `--height` | `int` | `480` | Camera capture frame height |
+| `--retries` | `int` | `3` | Default frame capture attempts per `/read` call before giving up |
+| `--retry-interval` | `float` | `0.2` | Default seconds between retry attempts during `/read` |
+
+---
+
+## Web User Interface
+
+The web dashboard is styled in a modern pastel theme with 4 centered navigation tabs:
+
+1. **Scanner ([`/`](http://localhost:5050/))**: Real-time MJPEG live stream, active camera dropdown selector, `Scan QR Now` action button, live decoded QR readout, and `Reset Camera Defaults` button.
+2. **Adjust Camera ([`/adjust`](http://localhost:5050/adjust))**: Live slider controls (Brightness: -100..100, Contrast: 0.1..3.0, Exposure EV: -5..5, Threshold: 0..255), `Smart Auto-Adjust`, `Reset to Factory Defaults`, and Multi-Station Profile saving/loading.
+3. **Captured Screen ([`/cap_screen`](http://localhost:5050/cap_screen))**: Displays the latest detected QR snapshot with green bounding polygon and timestamp badge, elapsed time counter, and an instant `Download Snapshot` button.
+4. **Code Updater ([`/upload`](http://localhost:5050/upload))**: Browser-based OTA code updater with pre-save syntax validation (`compile()`), automatic rollback backup (`qr_http_server.py.bak`), and background systemd service restart.
+
+---
+
+## Complete REST API Reference
+
+### Core Scanning & Diagnostics
+
+| Endpoint | Method(s) | Description | Parameters | Success Response | Error Response |
+|---|---|---|---|---|---|
+| `/read` | `GET`, `POST` | Trigger QR code scan | Optional JSON: `{"retries": 3, "retry_interval": 0.2}` | **200 OK**<br>`{"status": "ok", "data": "CONTENT", "timestamp": 1786431511.0}`<br>or **200 OK (no QR)**<br>`{"status": "no_qr", "message": "No QR code detected after retries", "timestamp": 1786431511.0}` | **503 Service Unavailable**<br>`{"status": "error", "error_code": "CAMERA_NOT_READY", "message": "Camera is disconnected or frame grabber is failing", "timestamp": ...}`<br>**500 Internal Error**<br>`{"status": "error", "error_code": "SCAN_ERROR", "message": "...", "timestamp": ...}` |
+| `/health` | `GET` | Health metrics & diagnostics | None | **200 OK**<br>`{"status": "ok", "camera_connected": true, "camera_index": 0, "has_latest_frame": true, "seconds_since_last_frame": 0.02, "uptime_seconds": 320.5, "timestamp": 1786431511.0}` | Status `"degraded"` if frame grabber inactive > 3s |
+| `/ping` | `GET` | Connectivity ping | None | **200 OK**<br>`{"status": "pong", "timestamp": 1786431511.0}` | — |
+
+### Camera Control & Tuning
+
+| Endpoint | Method(s) | Description | Parameters | Example Response |
+|---|---|---|---|---|
+| `/video_feed` | `GET` | Multipart MJPEG video stream | None | `<img src="/video_feed">` (`multipart/x-mixed-replace`) |
+| `/cameras` | `GET` | List verified video devices & active index | None | `{"status": "ok", "active_index": 0, "available_cameras": [{"index": 0, "name": "Logitech HD Webcam (/dev/video0)"}]}` |
+| `/cameras/switch` | `POST` | Switch active camera index live | JSON: `{"index": 2}` | `{"status": "ok", "message": "Switched to camera index 2", "active_index": 2}` |
+| `/settings` | `GET` | Get active software image parameters | None | `{"brightness": 0, "contrast": 1.0, "exposure": 0, "threshold": 0}` |
+| `/settings` | `POST` | Update software image parameters | JSON: `{"brightness": 10, "contrast": 1.2, "exposure": 0, "threshold": 0}` | `{"status": "ok", "settings": {"brightness": 10, "contrast": 1.2, "exposure": 0, "threshold": 0}}` |
+| `/settings/auto_adjust` | `POST` | Execute Smart Auto-Adjust baseline | None | `{"status": "ok", "message": "V4L2 Hardware Auto-Adjust baseline calculated and applied", "settings": {...}}` |
+| `/settings/reset` | `POST` | Restore physical V4L2 hardware defaults | None | `{"status": "ok", "message": "Camera hardware & software restored to dynamic camera defaults", "settings": {...}}` |
+
+### Profiles & Storage
+
+| Endpoint | Method(s) | Description | Parameters / Query | Output Format |
+|---|---|---|---|---|
+| `/profiles` | `GET` | List all saved station profile files | None | `{"status": "ok", "profiles": [{"filename": "Point_1.json", "name": "Point_1", "settings": {...}, "saved_at": 1786431511.0, "saved_at_iso": "2026-09-01 16:00:00"}]}` |
+| `/profiles/save` | `POST` | Save active settings as a named profile | JSON: `{"name": "Point_1"}` | `{"status": "ok", "message": "Camera setup saved to profile file Point_1.json", "data": {...}}` |
+| `/profiles/load` | `POST` | Load and apply a named station profile | JSON: `{"name": "Point_1"}` or `{"filename": "Point_1.json"}` | `{"status": "ok", "message": "Profile 'Point_1' loaded and applied successfully", "settings": {...}}` |
+| `/cap_screen` | `GET`, `POST` | Last captured QR snapshot | • Default: HTML page<br>• `?raw=1` or `?image=1`: Raw JPEG<br>• `?json=1` or `is_json`: JSON info | • HTML preview with instant download button<br>• Binary JPEG image (`image/jpeg`)<br>• JSON: `{"status": "ok", "qr_data": "...", "timestamp": ..., "filename": "qr_xxx.jpg", "image_url": "..."}` |
+| `/captures/<filename>` | `GET` | Direct download of saved capture file | Path: `<filename>` (e.g. `qr_PALLET_01.jpg`) | Binary JPEG image |
+
+### OTA Code Updater
+
+| Endpoint | Method(s) | Description | Parameters | Output |
+|---|---|---|---|---|
+| `/upload` | `GET` | OTA Code Updater Web Dashboard | None | HTML page for uploading updated `.py` script |
+| `/upload` | `POST` | Validate, backup, write, and restart service | Multipart form: `file` (.py) | `{"status": "ok", "message": "Code verified, backup created, and saved! Service restarting in 1s..."}` |
+
+---
+
+## Code Examples
+
+### cURL
+
+```bash
+# 1. Check connectivity
+curl http://localhost:5050/ping
+
+# 2. Check health and frame grabber status
+curl http://localhost:5050/health
+
+# 3. Trigger QR Scan (GET - uses server defaults)
+curl http://localhost:5050/read
+
+# 4. Trigger QR Scan (POST - custom retries and interval)
+curl -X POST http://localhost:5050/read \
   -H "Content-Type: application/json" \
-  -d '{"retries": 3, "retry_interval": 0.2}'
+  -d '{"retries": 5, "retry_interval": 0.15}'
+
+# 5. List available verified cameras
+curl http://localhost:5050/cameras
+
+# 6. Switch active camera to index 2 live
+curl -X POST http://localhost:5050/cameras/switch \
+  -H "Content-Type: application/json" \
+  -d '{"index": 2}'
+
+# 7. Run Smart Auto-Adjust
+curl -X POST http://localhost:5050/settings/auto_adjust
+
+# 8. Load named Station Profile
+curl -X POST http://localhost:5050/profiles/load \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Point_1"}'
+
+# 9. Download latest annotated QR image
+curl -O http://localhost:5050/cap_screen?raw=1
+
+# 10. OTA upload updated Python script
+curl -F "file=@qr_http_server.py" http://localhost:5050/upload
 ```
 
-### Using it from Python
-
-```bash
-python3 qr_client_example.py --host 127.0.0.1 --port 8080 --command read
-```
+### Python (`requests`)
 
 ```python
 import requests
 
-resp = requests.post("http://127.0.0.1:8080/read", json={"retries": 3})
-print(resp.json())
+SERVER_URL = "http://192.168.10.19:5050"
+
+# 1. Verify service health before operation
+health = requests.get(f"{SERVER_URL}/health").json()
+if health.get("status") != "ok":
+    raise SystemError(f"Camera service degraded or disconnected: {health}")
+
+# 2. Switch camera or load station-specific lighting profile
+requests.post(f"{SERVER_URL}/profiles/load", json={"name": "Station_B"})
+
+# 3. Trigger QR read (supports GET or POST with retry tuning)
+resp = requests.post(f"{SERVER_URL}/read", json={"retries": 4, "retry_interval": 0.2})
+result = resp.json()
+
+if result.get("status") == "ok":
+    print(f"Decoded QR Content: {result['data']} (timestamp: {result.get('timestamp')})")
+elif result.get("status") == "no_qr":
+    print("No QR detected in view.")
+else:
+    print(f"Error ({result.get('error_code')}): {result.get('message')}")
+```
+
+### Node-RED Industrial Flow
+
+```
+[AGV Arrives at Station]
+       │
+       ▼
+[HTTP Request: POST /profiles/load {"name": "Station_Pallet"}]
+       │
+       ▼
+[HTTP Request: POST /read {"retries": 4, "retry_interval": 0.2}]
+       │
+       ▼
+[Switch Node: msg.payload.status]
+       ├── "ok"    ──> [Extract msg.payload.data -> Send to PLC / WMS]
+       ├── "no_qr" ──> [Trigger AGV Alignment Adjustment / Retry]
+       └── "error" ──> [Raise Inspection Station Alarm]
 ```
 
 ---
 
-## Raw TCP server (alternative, no HTTP stack needed)
+## Systemd Background Service Setup
 
-For lightweight clients that shouldn't need an HTTP library, `qr_socket_server_tcp.py` speaks newline-delimited JSON directly over a TCP socket.
-
-```bash
-python3 qr_socket_server_tcp.py --port 6789 --camera-index 0
-```
-
-Same `--retries` / `--retry-interval` flags apply. Protocol:
-
-```json
-Client -> Server:  {"command": "read"}
-Server -> Client:  {"status": "ok", "data": "<text>"} | {"status": "no_qr"}
-
-Client -> Server:  {"command": "ping"}
-Server -> Client:  {"status": "pong"}
-```
-
-Quick test:
+To enable [`qr_http_server.py`](file:///home/cookies/qr-socket-server/qr_http_server.py) to run continuously in the background and start automatically on Linux boot:
 
 ```bash
-nc localhost 6789
-{"command": "read"}
-```
+# 1. Copy the provided service file to systemd directory
+sudo cp /home/cookies/qr-socket-server/systemd/qr-http-server.service /etc/systemd/system/
 
-Postman does not support raw TCP sockets (it covers HTTP, WebSocket,
-Socket.IO, gRPC, and MQTT, but plain TCP remains an unresolved [open
-feature
-request](https://github.com/postmanlabs/postman-app-support/issues/12253)).
-Use the HTTP server above if Postman testing matters to you.
-
----
-
-## MQTT server (for IoT / broker-based setups)
-
-Unlike the HTTP and TCP versions, MQTT is publish/subscribe rather
-than request/response: a client **publishes** a read request to a
-command topic, and the server **publishes** the result to a separate
-response topic. Any number of clients can subscribe to the response
-topic at once.
-
-### Install and run a local broker (for testing)
-
-If you don't already have an MQTT broker, Mosquitto is the simplest to run locally:
-
-```bash
-sudo apt install mosquitto mosquitto-clients
-sudo systemctl enable --now mosquitto
-```
-
-This starts a broker on `localhost:1883`. For production, point
-`--broker-host` / `--broker-port` at whatever broker you actually use
-(Mosquitto, HiveMQ, AWS IoT Core, etc.), with `--username` /
-`--password` if it requires auth.
-
-### Run it
-
-```bash
-python3 qr_mqtt_server.py --broker-host localhost --broker-port 1883
-```
-
-| Flag | Default | Description |
-|---|---|---|
-| `--broker-host` | `localhost` | MQTT broker address |
-| `--broker-port` | `1883` | MQTT broker port |
-| `--client-id` | `qr_mqtt_server` | MQTT client ID |
-| `--username` / `--password` | none | Broker auth, if required |
-| `--qos` | `1` | MQTT QoS level (0/1/2) |
-| `--command-topic` | `qr/read` | Topic clients publish read requests to |
-| `--result-topic` | `qr/result` | Topic the server publishes results to |
-| `--ping-topic` / `--pong-topic` | `qr/ping` / `qr/pong` | Liveness check topics |
-| `--camera-index`, `--width`, `--height`, `--retries`, `--retry-interval` | same as HTTP server | Camera and retry behavior |
-
-### Topics and payloads
-
-**Trigger a read** — publish to `qr/read` (payload optional):
-
-```json
-{"retries": 3, "retry_interval": 0.2, "request_id": "any-string-you-choose"}
-```
-
-An empty payload just uses the server's configured defaults.
-
-**Result** — the server publishes to `qr/result`:
-
-```json
-{"status": "ok", "data": "<decoded_text>", "request_id": "..."}
-{"status": "no_qr", "request_id": "..."}
-{"status": "error", "message": "<details>", "request_id": "..."}
-```
-
-`request_id` is only included if you sent one — it's just echoed back
-so you can match a specific request to its result when multiple
-clients share the same topics.
-
-> **Note:** Postman does support MQTT natively (unlike raw TCP), so
-> you can also drive this server from Postman — create an MQTT request,
-> connect to your broker, subscribe to `qr/result`, then publish `{}`
-> to `qr/read`.
-
-**Liveness check** — publish anything to `qr/ping`, server replies on `qr/pong` with `{"status": "pong"}`.
-
-### Using it from the command line (mosquitto-clients)
-
-```bash
-# Terminal 1: listen for the result
-mosquitto_sub -h localhost -t qr/result
-
-# Terminal 2: trigger a read
-mosquitto_pub -h localhost -t qr/read -m '{}'
-```
-
-### Using it from Python
-
-```bash
-python3 qr_mqtt_client_example.py --broker-host localhost --command read
-```
-
-```python
-import json, time, paho.mqtt.client as mqtt
-
-result = {}
-
-def on_message(client, userdata, msg):
-    result.update(json.loads(msg.payload))
-
-client = mqtt.Client()
-client.on_message = on_message
-client.connect("localhost", 1883)
-client.subscribe("qr/result")
-client.loop_start()
-
-client.publish("qr/read", "{}")
-time.sleep(2)  # wait for the response to arrive
-print(result)
-```
-
----
-
-## Running as a systemd service
-
-**HTTP version:**
-
-```bash
-sudo mkdir -p /opt/qr-http-server
-sudo cp qr_http_server.py /opt/qr-http-server/
-sudo cp systemd/qr-http-server.service /etc/systemd/system/
-
-# edit the service file: set User=<your_linux_username>
-sudo nano /etc/systemd/system/qr-http-server.service
-
+# 2. Reload systemd daemon and enable service
 sudo systemctl daemon-reload
-sudo systemctl enable --now qr-http-server
+sudo systemctl enable qr-http-server
+sudo systemctl start qr-http-server
+
+# 3. Check service status and live logs
 sudo systemctl status qr-http-server
+sudo journalctl -u qr-http-server -f
 ```
 
-View logs:
+The service unit file ([`systemd/qr-http-server.service`](file:///home/cookies/qr-socket-server/systemd/qr-http-server.service)) is configured with `Restart=always` and `RestartSec=5` for high industrial availability.
 
-```bash
-journalctl -u qr-http-server -f
+---
+
+## Project Directory Structure
+
+File structure for [`qr_http_server.py`](file:///home/cookies/qr-socket-server/qr_http_server.py):
+
+```
+/home/cookies/qr-socket-server/
+├── captures/               <-- Overwrite snapshots per QR code type (e.g. qr_PALLET_01.jpg)
+├── camera_setups/          <-- Multi-station profile JSON files (e.g. Point_1.json, Station_B.json)
+├── camera_setup.json       <-- Active camera configuration snapshot
+├── camera_setup_cam0.json  <-- Isolated persistent config for Camera 0
+├── camera_setup_cam2.json  <-- Isolated persistent config for Camera 2
+├── camera_setup_cam4.json  <-- Isolated persistent config for Camera 4
+├── templates/              <-- Pastel web UI templates
+│   ├── index.html          <-- Scanner page with live video & controls
+│   ├── adjust.html         <-- Camera adjustment & profile tuning page
+│   ├── cap_screen.html     <-- Captured QR screen preview & download
+│   └── upload.html         <-- OTA Python code updater page
+├── qr_http_server.py       <-- Main HTTP QR Vision Server & Web Dashboard
+├── systemd/
+│   └── qr-http-server.service <-- Systemd service configuration
+├── README.md               <-- Documentation for qr_http_server.py
+└── requirements.txt        <-- Python Dependencies
 ```
 
-(The raw TCP version follows the same pattern — see `qr_socket_server_tcp.py` and adapt the service file accordingly.)
-
-**MQTT version:**
-
-```bash
-sudo mkdir -p /opt/qr-mqtt-server
-sudo cp qr_mqtt_server.py /opt/qr-mqtt-server/
-sudo cp systemd/qr-mqtt-server.service /etc/systemd/system/
-
-# edit the service file: set User=<your_linux_username> and broker host/port if not local
-sudo nano /etc/systemd/system/qr-mqtt-server.service
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now qr-mqtt-server
-sudo systemctl status qr-mqtt-server
-```
-
-## How retries work
-
-Each read grabs a fresh frame per attempt (not just re-decoding the
-same image), checking up to `retries` times (default 3, ~0.2s apart)
-before reporting no QR code found. With defaults, a request takes at
-most roughly 0.4–0.6 seconds if nothing is in view. Tune `retries` /
-`retry_interval` (via CLI flags for server-wide defaults, or per-request
-in the `/read` body) to trade off responsiveness against how much time
-you want to give someone to hold a code up to the camera.
+---
 
 ## Troubleshooting
 
-- **`Could not open camera index 0`** — check the device exists with
-  `ls /dev/video*` and that your user is in the `video` group:
-  `sudo usermod -aG video $USER` (then log out/in).
-- **Permission denied on `/dev/video0`** — same fix as above.
-- **`ModuleNotFoundError: pyzbar`** — make sure `libzbar0` is
-  installed via apt, not just the `pyzbar` pip package.
-- **Postman can't connect** — make sure you're hitting the HTTP
-  server (`qr_http_server.py`, default port `8080`), not the raw TCP
-  one (default port `6789`). For MQTT, Postman connects to your
-  broker (e.g. `localhost:1883`), not to `qr_mqtt_server.py` directly.
-- **MQTT: no response on `qr/result`** — confirm the broker is running
-  (`sudo systemctl status mosquitto`) and that `qr_mqtt_server.py`
-  logged a successful connection. Also check `--command-topic` /
-  `--result-topic` match on both the publisher and `qr_mqtt_server.py`.
+- **Camera device busy or disconnected (`CAMERA_NOT_READY` / 503)**:
+  - Check connected cameras with `v4l2-ctl --list-devices` or query `GET /cameras`.
+  - Verify your Linux user is in the `video` group: `sudo usermod -aG video $USER` (log out and back in).
+- **ZBar library missing (`ImportError: Unable to find zbar shared library`)**:
+  - Install the system library: `sudo apt-get install -y libzbar0`.
+- **Image overexposed or whitewashed under bright industrial lights**:
+  - Hit `Smart Auto-Adjust` via the UI or `POST /settings/auto_adjust`. This disables webcam hardware backlight compensation (`backlight_compensation=0`) and calculates optimal software brightness and contrast.
+- **Autofocus hunting when robot moves**:
+  - The server automatically suppresses autofocus. To verify hardware controls manually: `v4l2-ctl -d /dev/video0 --list-ctrls | grep -i focus`.
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT License. Free for commercial, robotic, and industrial automation use.

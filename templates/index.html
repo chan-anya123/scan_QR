@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QR Scanner Camera</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #f6f8fd;
+            --bg-card: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --pastel-purple: #8b5cf6;
+            --pastel-indigo: #6366f1;
+            --border-subtle: #e2e8f0;
+            --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.08);
+        }
+
+        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; }
+        body { 
+            background: var(--bg-page); 
+            background-image: radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.45) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(220, 252, 231, 0.4) 0px, transparent 50%),
+                              radial-gradient(at 50% 100%, rgba(254, 226, 226, 0.3) 0px, transparent 50%);
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+        }
+        
+        .nav-bar { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8); 
+            padding: 10px 24px; 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .nav-container { max-width: 900px; margin: 0 auto; display: flex; gap: 8px; align-items: center; justify-content: center; }
+        .nav-tab { 
+            padding: 10px 18px; 
+            text-decoration: none; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 14px; 
+            border-radius: 10px; 
+            transition: all 0.2s; 
+        }
+        .nav-tab:hover { color: #4338ca; background: #eef2ff; }
+        .nav-tab.active { color: #4f46e5; background: #ede9fe; font-weight: 700; }
+
+        .container { max-width: 900px; margin: 28px auto 40px auto; padding: 0 20px; }
+        .card { 
+            background: var(--bg-card); 
+            border-radius: 20px; 
+            padding: 30px; 
+            box-shadow: var(--shadow-card); 
+            border: 1px solid #edf2f7; 
+        }
+        .scanner-box { text-align: center; max-width: 680px; margin: 0 auto; }
+        h2 { font-size: 22px; font-weight: 800; color: #0f172a; margin-top: 0; margin-bottom: 18px; letter-spacing: -0.4px; }
+
+        #video { border-radius: 14px; max-width: 100%; height: auto; border: 1px solid var(--border-subtle); background: #0f172a; box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        
+        .btn { 
+            padding: 13px 26px; 
+            font-size: 15px; 
+            font-weight: 700; 
+            cursor: pointer; 
+            background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+            color: white; 
+            border: none; 
+            border-radius: 12px; 
+            transition: all 0.2s; 
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 8px; 
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+        }
+        .btn:hover { 
+            background: linear-gradient(135deg, #4f46e5, #7c3aed); 
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        .btn-reset { 
+            background: #f8fafc; 
+            color: #64748b; 
+            border: 1px solid #e2e8f0; 
+            box-shadow: none;
+        }
+        .btn-reset:hover { background: #e2e8f0; color: #1e293b; box-shadow: none; }
+        
+        .reset-toast { font-size: 13px; color: #059669; font-weight: 700; margin-top: 10px; opacity: 0; transition: opacity 0.3s; height: 20px; }
+        
+        #resultBox { 
+            margin-top: 18px; 
+            font-size: 18px; 
+            font-weight: 800; 
+            color: #065f46; 
+            background: #f0fdf4; 
+            padding: 16px 20px; 
+            border-radius: 14px; 
+            border: 1px solid #a7f3d0; 
+            word-break: break-all; 
+            text-align: left;
+        }
+        .cap-link { font-size: 13px; margin-top: 8px; display: inline-block; color: #4f46e5; font-weight: 700; text-decoration: none; }
+        .cap-link:hover { text-decoration: underline; }
+        
+        .camera-select-row { margin-bottom: 20px; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .select-input { 
+            padding: 10px 16px; 
+            border-radius: 10px; 
+            border: 1px solid #cbd5e1; 
+            font-weight: 700; 
+            background: #f8fafc; 
+            color: #1e293b; 
+            font-size: 14px; 
+            outline: none; 
+            cursor: pointer; 
+            min-width: 240px; 
+            transition: all 0.2s;
+        }
+        .select-input:focus { border-color: #6366f1; background: white; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="/" class="nav-tab active">Scanner</a>
+            <a href="/adjust" class="nav-tab">Adjust Camera</a>
+            <a href="/cap_screen" class="nav-tab">Captured Screen</a>
+            <a href="/upload" class="nav-tab">Code Updater</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="card scanner-box">
+            <h2>Streaming QR Code Scanner</h2>
+
+            <div class="camera-select-row">
+                <label for="cameraSelect" style="font-weight: 700; color: #475569; font-size: 14px;">Select Active Camera:</label>
+                <select id="cameraSelect" onchange="onCameraSelected(this.value)" class="select-input">
+                    <option value="0">Loading camera devices...</option>
+                </select>
+            </div>
+
+            <img id="video" src="/video_feed" width="640" height="480" alt="Live Camera Feed" />
+            <br>
+            <div style="display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; margin-top: 20px;">
+                <button type="button" class="btn" onclick="scanQR()">Scan QR Now</button>
+                <button type="button" id="btnReset" class="btn btn-reset" onclick="resetActiveCamera()">Reset Camera Defaults</button>
+            </div>
+            <div id="resetToast" class="reset-toast"></div>
+
+            <div id="resultBox">Result: <span id="result">-</span><br><a id="capLink" href="/cap_screen" class="cap-link" style="display:none;">View Captured Screen &rarr;</a></div>
+        </div>
+    </div>
+
+    <script>
+        function loadCameras() {
+            fetch('/cameras')
+                .then(r => r.json())
+                .then(data => {
+                    const sel = document.getElementById('cameraSelect');
+                    sel.innerHTML = '';
+                    if (data.available_cameras && data.available_cameras.length > 0) {
+                        data.available_cameras.forEach(cam => {
+                            const opt = document.createElement('option');
+                            opt.value = cam.index;
+                            opt.innerText = cam.name;
+                            if (cam.index === data.active_index) {
+                                opt.selected = true;
+                            }
+                            sel.appendChild(opt);
+                        });
+                    } else {
+                        sel.innerHTML = '<option value="0">Camera 0 (/dev/video0)</option>';
+                    }
+                })
+                .catch(err => console.error('Failed to load camera list:', err));
+        }
+
+        function onCameraSelected(newIndex) {
+            fetch('/cameras/switch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ index: parseInt(newIndex) })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    document.getElementById('video').src = '/video_feed?t=' + Date.now();
+                } else {
+                    alert('Failed to switch camera: ' + (data.message || 'Error'));
+                }
+            })
+            .catch(err => alert('Failed to connect to server to switch camera'));
+        }
+
+        function scanQR() {
+            document.getElementById('result').innerText = "Scanning...";
+            document.getElementById('result').style.color = "#d97706";
+            document.getElementById('capLink').style.display = "none";
+            
+            fetch('/read', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({retries: 5, retry_interval: 0.3})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if(data.status === 'ok') {
+                    document.getElementById('result').innerText = data.data;
+                    document.getElementById('result').style.color = "#059669";
+                    document.getElementById('capLink').style.display = "inline-block";
+                } else {
+                    document.getElementById('result').innerText = data.message || "No QR code detected";
+                    document.getElementById('result').style.color = "#dc2626";
+                }
+            })
+            .catch(err => {
+                document.getElementById('result').innerText = "Connection Error!";
+                document.getElementById('result').style.color = "#dc2626";
+            });
+        }
+
+        function resetActiveCamera() {
+            const btn = document.getElementById('btnReset');
+            const toast = document.getElementById('resetToast');
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = "Resetting...";
+            }
+
+            fetch('/settings/reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('video').src = '/video_feed?t=' + Date.now();
+                    if (toast) {
+                        toast.innerText = "Active camera restored to defaults!";
+                        toast.style.opacity = '1';
+                        setTimeout(() => { toast.style.opacity = '0'; }, 2500);
+                    }
+                })
+                .catch(err => {
+                    alert("Failed to reset camera: " + (err.message || err));
+                })
+                .finally(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = "Reset Camera Defaults";
+                    }
+                });
+        }
+
+        window.onload = loadCameras;
+    </script>
+</body>
+</html>

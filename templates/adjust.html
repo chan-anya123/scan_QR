@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Camera Adjust - QR Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #f6f8fd;
+            --bg-card: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --pastel-purple: #8b5cf6;
+            --pastel-indigo: #6366f1;
+            --border-subtle: #e2e8f0;
+            --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.08);
+        }
+
+        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; }
+        body { 
+            background: var(--bg-page); 
+            background-image: radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.45) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(220, 252, 231, 0.4) 0px, transparent 50%),
+                              radial-gradient(at 50% 100%, rgba(254, 226, 226, 0.3) 0px, transparent 50%);
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+        }
+        
+        .nav-bar { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8); 
+            padding: 10px 24px; 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .nav-container { max-width: 900px; margin: 0 auto; display: flex; gap: 8px; align-items: center; justify-content: center; }
+        .nav-tab { 
+            padding: 10px 18px; 
+            text-decoration: none; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 14px; 
+            border-radius: 10px; 
+            transition: all 0.2s; 
+        }
+        .nav-tab:hover { color: #4338ca; background: #eef2ff; }
+        .nav-tab.active { color: #4f46e5; background: #ede9fe; font-weight: 700; }
+
+        .container { max-width: 900px; margin: 28px auto 40px auto; padding: 0 20px; }
+        .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; }
+        @media (max-width: 768px) { .grid { grid-template-columns: 1fr; } }
+
+        .card { 
+            background: var(--bg-card); 
+            border-radius: 20px; 
+            padding: 26px; 
+            box-shadow: var(--shadow-card); 
+            border: 1px solid #edf2f7; 
+        }
+        h2 { margin-top: 0; font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 18px; display: flex; align-items: center; justify-content: space-between; letter-spacing: -0.3px; }
+        
+        .video-box { border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 240px; border: 1px solid var(--border-subtle); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+        .video-box img { width: 100%; height: auto; display: block; }
+        
+        .control-group { margin-bottom: 18px; }
+        .control-label { display: flex; justify-content: space-between; font-weight: 700; font-size: 14px; margin-bottom: 8px; color: #334155; }
+        .control-value { color: #6366f1; font-weight: 800; background: #eef2ff; padding: 2px 8px; border-radius: 6px; font-size: 13px; }
+        
+        input[type="range"] { width: 100%; height: 8px; background: #e2e8f0; border-radius: 4px; outline: none; -webkit-appearance: none; cursor: pointer; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #6366f1; cursor: pointer; border: 3px solid #fff; box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4); }
+        
+        .btn { padding: 12px 18px; border: none; border-radius: 12px; font-weight: 700; cursor: pointer; transition: all 0.2s; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn-auto { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; width: 100%; margin-bottom: 14px; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25); }
+        .btn-auto:hover { background: linear-gradient(135deg, #4f46e5, #7c3aed); transform: translateY(-1px); }
+        .btn-save { background: #10b981; color: white; width: 100%; margin-top: 8px; }
+        .btn-save:hover { background: #059669; }
+        .btn-load { background: #6366f1; color: white; width: 100%; margin-top: 8px; }
+        .btn-load:hover { background: #4f46e5; }
+        .btn-outline { background: #f8fafc; border: 1px solid #e2e8f0; color: #64748b; width: 100%; margin-top: 14px; }
+        .btn-outline:hover { background: #e2e8f0; color: #1e293b; }
+        
+        .text-input { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; margin-bottom: 8px; outline: none; background: #f8fafc; font-weight: 600; }
+        .text-input:focus { border-color: #6366f1; background: white; }
+        .select-input { width: 100%; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 10px; font-size: 14px; margin-bottom: 8px; outline: none; background: #f8fafc; font-weight: 600; }
+        .select-input:focus { border-color: #6366f1; background: white; }
+        
+        .save-toast { font-size: 13px; color: #059669; font-weight: 700; opacity: 0; transition: opacity 0.3s; background: #ecfdf5; padding: 4px 10px; border-radius: 8px; border: 1px solid #a7f3d0; }
+        .profile-card { margin-top: 20px; padding-top: 20px; border-top: 1px dashed #cbd5e1; }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="/" class="nav-tab">Scanner</a>
+            <a href="/adjust" class="nav-tab active">Adjust Camera</a>
+            <a href="/cap_screen" class="nav-tab">Captured Screen</a>
+            <a href="/upload" class="nav-tab">Code Updater</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="grid">
+            <div class="card">
+                <h2>
+                    <span>Live Feed Preview</span>
+                    <span id="toast" class="save-toast">Applied</span>
+                </h2>
+                <div class="video-box">
+                    <img id="video" src="/video_feed" alt="Camera Stream" />
+                </div>
+
+                <button class="btn btn-outline" onclick="restoreFactorySetup()">Reset Active Camera to Defaults</button>
+            </div>
+            <div class="card">
+                <h2>Image Adjustments</h2>
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Brightness</span>
+                        <span class="control-value" id="brightnessVal">0</span>
+                    </div>
+                    <input type="range" id="brightness" min="-100" max="100" value="0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Exposure</span>
+                        <span class="control-value" id="exposureVal">0</span>
+                    </div>
+                    <input type="range" id="exposure" min="-5" max="5" value="0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Contrast</span>
+                        <span class="control-value" id="contrastVal">1.0</span>
+                    </div>
+                    <input type="range" id="contrast" min="0.1" max="3.0" step="0.1" value="1.0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Threshold (0 = Off)</span>
+                        <span class="control-value" id="thresholdVal">Off</span>
+                    </div>
+                    <input type="range" id="threshold" min="0" max="255" value="0" oninput="onControlChange()">
+                </div>
+
+                <button class="btn btn-auto" onclick="triggerAutoAdjust()">Smart Auto-Adjust</button>
+
+                <div class="profile-card">
+                    <h3 style="font-size: 15px; margin-top: 0; color: #1e293b;">Save Setup Profile</h3>
+                    <input type="text" id="profileName" class="text-input" placeholder="e.g. low_light_station">
+                    <button class="btn btn-save" onclick="saveProfile()">Save Named Profile</button>
+
+                    <h3 style="font-size: 15px; margin-top: 16px; margin-bottom: 6px; color: #1e293b;">Load Saved Profile</h3>
+                    <select id="profileSelect" class="select-input">
+                        <option value="">Loading profiles...</option>
+                    </select>
+                    <button class="btn btn-load" onclick="loadProfile()">Load & Apply</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let changeDebounce = null;
+
+        function loadSettings() {
+            fetch('/settings')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('brightness').value = data.brightness;
+                    document.getElementById('brightnessVal').innerText = data.brightness;
+                    document.getElementById('contrast').value = data.contrast;
+                    document.getElementById('contrastVal').innerText = data.contrast.toFixed(1);
+                    document.getElementById('exposure').value = data.exposure;
+                    document.getElementById('exposureVal').innerText = data.exposure;
+                    document.getElementById('threshold').value = data.threshold;
+                    document.getElementById('thresholdVal').innerText = data.threshold === 0 ? "Off" : data.threshold;
+                })
+                .catch(err => console.error("Failed to load settings:", err));
+
+            loadProfiles();
+        }
+
+        function loadProfiles() {
+            fetch('/profiles')
+                .then(r => r.json())
+                .then(data => {
+                    const sel = document.getElementById('profileSelect');
+                    sel.innerHTML = '';
+                    if (data.profiles && data.profiles.length > 0) {
+                        data.profiles.forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p.filename || p.name || p.profile_name;
+                            const profName = p.profile_name || p.name || (p.filename ? p.filename.replace('.json', '') : 'Profile');
+                            const b = (p.settings && p.settings.brightness !== undefined) ? p.settings.brightness : (p.brightness !== undefined ? p.brightness : 0);
+                            const c = (p.settings && p.settings.contrast !== undefined) ? p.settings.contrast : (p.contrast !== undefined ? p.contrast : 1.0);
+                            opt.innerText = `${profName} (Brightness: ${b}, Contrast: ${Number(c).toFixed(1)}x)`;
+                            sel.appendChild(opt);
+                        });
+                    } else {
+                        sel.innerHTML = '<option value="">No saved profiles yet</option>';
+                    }
+                })
+                .catch(err => {
+                    console.error("Failed to load profiles:", err);
+                    const sel = document.getElementById('profileSelect');
+                    sel.innerHTML = '<option value="">Error loading profiles</option>';
+                });
+        }
+
+        function onControlChange() {
+            const b = parseInt(document.getElementById('brightness').value);
+            const c = parseFloat(document.getElementById('contrast').value);
+            const exp = parseInt(document.getElementById('exposure').value);
+            const t = parseInt(document.getElementById('threshold').value);
+
+            document.getElementById('brightnessVal').innerText = b;
+            document.getElementById('contrastVal').innerText = c.toFixed(1);
+            document.getElementById('exposureVal').innerText = exp;
+            document.getElementById('thresholdVal').innerText = t === 0 ? "Off" : t;
+
+            clearTimeout(changeDebounce);
+            changeDebounce = setTimeout(() => {
+                fetch('/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        brightness: b,
+                        contrast: c,
+                        exposure: exp,
+                        threshold: t
+                    })
+                })
+                .then(r => r.json())
+                .then(() => showToast("Saved"))
+                .catch(err => console.error("Failed to update settings:", err));
+            }, 100);
+        }
+
+        function triggerAutoAdjust() {
+            fetch('/settings/auto_adjust', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    loadSettings();
+                    document.getElementById('video').src = '/video_feed?t=' + Date.now();
+                    showToast("Auto-Adjust Applied");
+                })
+                .catch(err => alert("Auto-adjust failed: " + err));
+        }
+
+        function restoreFactorySetup() {
+            fetch('/settings/reset', { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    loadSettings();
+                    document.getElementById('video').src = '/video_feed?t=' + Date.now();
+                    showToast("Reset to Camera Defaults");
+                })
+                .catch(err => alert("Failed to reset camera defaults"));
+        }
+
+        function saveProfile() {
+            const nameInput = document.getElementById('profileName');
+            const name = nameInput.value.trim();
+            if (!name) {
+                alert("Please enter a profile name (e.g. low_light_station)");
+                return;
+            }
+            fetch('/profiles/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: name, profile_name: name })
+            })
+            .then(r => r.json())
+            .then(data => {
+                nameInput.value = '';
+                loadProfiles();
+                showToast("Profile Saved");
+            })
+            .catch(err => alert("Failed to save profile: " + err));
+        }
+
+        function loadProfile() {
+            const sel = document.getElementById('profileSelect');
+            const target = sel.value;
+            if (!target) {
+                alert("Please select a profile from the dropdown list first");
+                return;
+            }
+            fetch('/profiles/load', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: target, name: target })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    loadSettings();
+                    const img = document.getElementById('video');
+                    if (img) img.src = '/video_feed?t=' + Date.now();
+                    showToast("Profile Loaded & Applied");
+                } else {
+                    alert("Failed to load profile: " + (data.message || 'Error'));
+                }
+            })
+            .catch(err => alert("Failed to load profile: " + err));
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+        }
+
+        window.onload = loadSettings;
+    </script>
+</body>
+</html>
