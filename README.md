@@ -31,8 +31,6 @@ This repository contains several variations of the QR server tailored for differ
 - **`muti_qr/`**: Advanced single-camera version. Capable of scanning and returning multiple QR codes simultaneously from the same camera frame.
 - **`muti_camera/`**: Multi-camera support. Designed to handle multiple physical USB cameras plugged into the same machine, allowing switching between them.
 - **`ros_camera/`**: ROS (Robot Operating System) compatible version. Subscribes to ROS image topics instead of reading directly from hardware USB devices (`/dev/video*`).
-- **`systemd/`**: Contains example `.service` files for running the servers as background system services on Linux without Docker.
-- **`env/`**: (Local only) The Python virtual environment containing installed dependencies.
 
 ---
 
