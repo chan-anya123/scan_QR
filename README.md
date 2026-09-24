@@ -23,6 +23,19 @@ A high-performance, standalone Linux/Ubuntu vision application (no ROS required)
 
 ---
 
+## Project Structure
+
+This repository contains several variations of the QR server tailored for different hardware setups and use cases. Each folder contains its own isolated server script and `docker-compose.yml` for easy deployment.
+
+- **`single_camera/`**: The core version. Reads a single QR code from a single connected USB camera. Best for simple inspection stations.
+- **`muti_qr/`**: Advanced single-camera version. Capable of scanning and returning multiple QR codes simultaneously from the same camera frame.
+- **`muti_camera/`**: Multi-camera support. Designed to handle multiple physical USB cameras plugged into the same machine, allowing switching between them.
+- **`ros_camera/`**: ROS (Robot Operating System) compatible version. Subscribes to ROS image topics instead of reading directly from hardware USB devices (`/dev/video*`).
+- **`systemd/`**: Contains example `.service` files for running the servers as background system services on Linux without Docker.
+- **`env/`**: (Local only) The Python virtual environment containing installed dependencies.
+
+---
+
 ## Installation & Requirements
 
 ### System Requirements
@@ -97,7 +110,7 @@ The web dashboard is styled in a modern pastel theme with 4 centered navigation 
 
 | Endpoint | Method(s) | Description | Parameters | Success Response | Error Response |
 |---|---|---|---|---|---|
-| `/read` | `GET`, `POST` | Trigger QR code scan | Optional JSON: `{"retries": 3, "retry_interval": 0.2}` | **200 OK**<br>`{"status": "ok", "data": "CONTENT", "timestamp": 1786431511.0}`<br>or **200 OK (no QR)**<br>`{"status": "no_qr", "message": "No QR code detected after retries", "timestamp": 1786431511.0}` | **503 Service Unavailable**<br>`{"status": "error", "error_code": "CAMERA_NOT_READY", "message": "Camera is disconnected or frame grabber is failing", "timestamp": ...}`<br>**500 Internal Error**<br>`{"status": "error", "error_code": "SCAN_ERROR", "message": "...", "timestamp": ...}` |
+| `/read` | `GET`, `POST` | Trigger QR code scan | Optional JSON: `{"retries": 3, "retry_interval": 0.2}` | **200 OK**<br>`{"status": "ok", "data": "CONTENT", "timestamp": 1786431511.0}`<br>or **200 OK (no QR)**<br>`{"status": "no_qr", "message": " ", "data": " ", "timestamp": 1786431511.0}` | **503 Service Unavailable**<br>`{"status": "error", "error_code": "CAMERA_NOT_READY", "message": "Camera is disconnected or frame grabber is failing", "timestamp": ...}`<br>**500 Internal Error**<br>`{"status": "error", "error_code": "SCAN_ERROR", "message": "...", "timestamp": ...}` |
 | `/health` | `GET` | Health metrics & diagnostics | None | **200 OK**<br>`{"status": "ok", "camera_connected": true, "camera_index": 0, "has_latest_frame": true, "seconds_since_last_frame": 0.02, "uptime_seconds": 320.5, "timestamp": 1786431511.0}` | Status `"degraded"` if frame grabber inactive > 3s |
 | `/ping` | `GET` | Connectivity ping | None | **200 OK**<br>`{"status": "pong", "timestamp": 1786431511.0}` | — |
 
@@ -240,32 +253,6 @@ sudo journalctl -u qr-http-server -f
 ```
 
 The service unit file ([`systemd/qr-http-server.service`](file:///home/cookies/qr-socket-server/systemd/qr-http-server.service)) is configured with `Restart=always` and `RestartSec=5` for high industrial availability.
-
----
-
-## Project Directory Structure
-
-File structure for [`qr_http_server.py`](file:///home/cookies/qr-socket-server/qr_http_server.py):
-
-```
-/home/cookies/qr-socket-server/
-├── captures/               <-- Overwrite snapshots per QR code type (e.g. qr_PALLET_01.jpg)
-├── camera_setups/          <-- Multi-station profile JSON files (e.g. Point_1.json, Station_B.json)
-├── camera_setup.json       <-- Active camera configuration snapshot
-├── camera_setup_cam0.json  <-- Isolated persistent config for Camera 0
-├── camera_setup_cam2.json  <-- Isolated persistent config for Camera 2
-├── camera_setup_cam4.json  <-- Isolated persistent config for Camera 4
-├── templates/              <-- Pastel web UI templates
-│   ├── index.html          <-- Scanner page with live video & controls
-│   ├── adjust.html         <-- Camera adjustment & profile tuning page
-│   ├── cap_screen.html     <-- Captured QR screen preview & download
-│   └── upload.html         <-- OTA Python code updater page
-├── qr_http_server.py       <-- Main HTTP QR Vision Server & Web Dashboard
-├── systemd/
-│   └── qr-http-server.service <-- Systemd service configuration
-├── README.md               <-- Documentation for qr_http_server.py
-└── requirements.txt        <-- Python Dependencies
-```
 
 ---
 

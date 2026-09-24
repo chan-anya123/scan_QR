@@ -1,16 +1,19 @@
 [Unit]
-Description=QR Code HTTP Server
-After=multi-user.target
+Description=QR Code HTTP Camera Service
+After=network.target
 
 [Service]
 Type=simple
-# Adjust the path below to wherever you install the script
-ExecStart=/usr/bin/python3 /opt/qr-http-server/qr_http_server.py --port 8080
-Restart=on-failure
-RestartSec=2
-User=your_username
-# Needed if your camera device requires video group permissions
+User=cookies
 SupplementaryGroups=video
+WorkingDirectory=/home/cookies/qr-socket-server/single_camera
+ExecStart=/home/cookies/qr-socket-server/env/bin/python3 /home/cookies/qr-socket-server/single_camera/qr_http_server.py --port 5050 --camera-index 0
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

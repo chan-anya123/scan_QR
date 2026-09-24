@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Robot Code Updater - Multi-Cam System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #f6f8fd;
+            --bg-card: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --pastel-purple: #8b5cf6;
+            --pastel-indigo: #6366f1;
+            --pastel-blue: #38bdf8;
+            --border-subtle: #e2e8f0;
+            --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.08);
+        }
+
+        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; }
+        body { 
+            background: var(--bg-page); 
+            background-image: radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.45) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(220, 252, 231, 0.4) 0px, transparent 50%),
+                              radial-gradient(at 50% 100%, rgba(254, 226, 226, 0.3) 0px, transparent 50%);
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+        }
+        
+        .nav-bar { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8); 
+            padding: 10px 24px; 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .nav-container { max-width: 1200px; margin: 0 auto; display: flex; gap: 8px; align-items: center; justify-content: center; }
+        .nav-tab { 
+            padding: 10px 18px; 
+            text-decoration: none; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 14px; 
+            border-radius: 10px; 
+            transition: all 0.2s; 
+        }
+        .nav-tab:hover { color: #4338ca; background: #eef2ff; }
+        .nav-tab.active { color: #4f46e5; background: #ede9fe; font-weight: 700; }
+
+        .container { max-width: 580px; margin: 40px auto; padding: 0 20px; }
+        .card { 
+            background: var(--bg-card); 
+            border-radius: 20px; 
+            padding: 32px; 
+            box-shadow: var(--shadow-card); 
+            border: 1px solid #edf2f7; 
+            text-align: center; 
+        }
+        h2 { color: #4338ca; margin-bottom: 8px; margin-top: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.4px; }
+        p { color: var(--text-muted); font-size: 14px; margin-bottom: 24px; }
+        
+        .file-drop { 
+            border: 2px dashed #c7d2fe; 
+            border-radius: 16px; 
+            padding: 38px 20px; 
+            background: #f5f3ff; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+        }
+        .file-drop:hover { background: #ede9fe; border-color: #818cf8; }
+        input[type="file"] { display: none; }
+        .file-name { margin-top: 12px; font-weight: 700; color: #059669; font-size: 14px; word-break: break-all; }
+        
+        .btn { 
+            margin-top: 22px; 
+            width: 100%; 
+            padding: 14px; 
+            background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+            color: #fff; 
+            border: none; 
+            border-radius: 12px; 
+            font-size: 15px; 
+            font-weight: 700; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.28);
+        }
+        .btn:hover { 
+            background: linear-gradient(135deg, #4f46e5, #7c3aed); 
+            transform: translateY(-1px);
+            box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+        }
+        .btn:disabled { background: #e2e8f0; color: #94a3b8; cursor: not-allowed; transform: none; box-shadow: none; }
+        
+        #statusBox { margin-top: 20px; padding: 14px 18px; border-radius: 12px; font-size: 14px; display: none; text-align: left; }
+        .success { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+        .error { background: #fff1f2; color: #9f1239; border: 1px solid #fecdd3; }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="/" class="nav-tab">Multi-Cam Scanner</a>
+            <a href="/adjust" class="nav-tab">Adjust Cameras</a>
+            <a href="/cap_screen" class="nav-tab">Captured Screen</a>
+            <a href="/upload" class="nav-tab active">Code Updater</a>
+        </div>
+    </nav>
+    <div class="container">
+        <div class="card">
+            <h2>Robot Code Updater</h2>
+            <p>Upload new <code>muti_cam.py</code> file to update the server live.</p>
+            <div class="file-drop" onclick="document.getElementById('fileInput').click()">
+                <span style="font-weight: 600; color: #4338ca;">Click or Drag <b>.py</b> file here</span>
+                <div id="fileName" class="file-name"></div>
+            </div>
+            <input type="file" id="fileInput" accept=".py" onchange="fileSelected(this)">
+            <button id="uploadBtn" class="btn" onclick="uploadCode()" disabled>Upload & Restart Service</button>
+            <div id="statusBox"></div>
+        </div>
+    </div>
+
+    <script>
+        function fileSelected(input) {
+            if (input.files && input.files[0]) {
+                document.getElementById('fileName').innerText = input.files[0].name;
+                document.getElementById('uploadBtn').disabled = false;
+            }
+        }
+
+        function uploadCode() {
+            const fileInput = document.getElementById('fileInput');
+            if (!fileInput.files[0]) return;
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            const statusBox = document.getElementById('statusBox');
+            const uploadBtn = document.getElementById('uploadBtn');
+
+            statusBox.style.display = 'block';
+            statusBox.className = '';
+            statusBox.innerText = 'Verifying syntax & uploading code...';
+            uploadBtn.disabled = true;
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(res => res.json().then(data => ({ status: res.status, body: data })))
+            .then(res => {
+                if (res.status === 200 && res.body.status === 'ok') {
+                    statusBox.className = 'success';
+                    statusBox.innerText = res.body.message;
+                    setTimeout(() => { location.reload(); }, 4000);
+                } else {
+                    statusBox.className = 'error';
+                    statusBox.innerText = 'Error: ' + (res.body.message || 'Upload failed');
+                    uploadBtn.disabled = false;
+                }
+            })
+            .catch(err => {
+                statusBox.className = 'error';
+                statusBox.innerText = 'Network error during upload';
+                uploadBtn.disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>

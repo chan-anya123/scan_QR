@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Multi-Camera QR Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #f6f8fd;
+            --bg-card: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --pastel-purple: #8b5cf6;
+            --pastel-purple-light: #f5f3ff;
+            --pastel-purple-border: #ddd6fe;
+            --pastel-indigo: #6366f1;
+            --pastel-blue: #38bdf8;
+            --pastel-blue-light: #f0f9ff;
+            --pastel-blue-border: #bae6fd;
+            --pastel-mint: #10b981;
+            --pastel-mint-light: #ecfdf5;
+            --pastel-mint-border: #a7f3d0;
+            --pastel-rose: #f43f5e;
+            --pastel-rose-light: #fff1f2;
+            --pastel-rose-border: #fecdd3;
+            --pastel-amber: #f59e0b;
+            --pastel-amber-light: #fffbeb;
+            --pastel-amber-border: #fde68a;
+            --border-subtle: #e2e8f0;
+            --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.08);
+            --shadow-hover: 0 16px 30px -6px rgba(124, 58, 237, 0.15), 0 10px 14px -6px rgba(124, 58, 237, 0.1);
+        }
+
+        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; }
+        body { 
+            background: var(--bg-page); 
+            background-image: radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.45) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(220, 252, 231, 0.4) 0px, transparent 50%),
+                              radial-gradient(at 50% 100%, rgba(254, 226, 226, 0.3) 0px, transparent 50%);
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+        }
+        
+        /* Navigation Bar */
+        .nav-bar { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8); 
+            padding: 10px 24px; 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .nav-container { max-width: 1200px; margin: 0 auto; display: flex; gap: 8px; align-items: center; justify-content: center; }
+        .nav-tab { 
+            padding: 10px 18px; 
+            text-decoration: none; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 14px; 
+            border-radius: 10px; 
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .nav-tab:hover { color: #4338ca; background: #eef2ff; }
+        .nav-tab.active { 
+            color: #4f46e5; 
+            background: #ede9fe; 
+            font-weight: 700;
+        }
+
+        .container { max-width: 1200px; margin: 24px auto 40px auto; padding: 0 20px; }
+
+        /* Multi-Camera Grid Header */
+        .grid-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+        .grid-header h2 { margin: 0; font-size: 20px; font-weight: 800; color: #1e293b; letter-spacing: -0.4px; }
+        .cam-count-pill { background: #e0e7ff; color: #4338ca; padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; border: 1px solid #c7d2fe; }
+
+        /* Multi-Camera Grid */
+        .camera-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 24px; margin-bottom: 32px; }
+        
+        .camera-card { 
+            background: var(--bg-card); 
+            border-radius: 18px; 
+            overflow: hidden; 
+            border: 1px solid var(--border-subtle); 
+            box-shadow: var(--shadow-card); 
+            display: flex; 
+            flex-direction: column; 
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .camera-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: #c7d2fe; }
+        .camera-card.is-disabled { opacity: 0.72; background: #fafafa; border-color: #e2e8f0; }
+        
+        .cam-card-header { 
+            background: #ffffff; 
+            padding: 14px 18px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            border-bottom: 1px solid #f1f5f9; 
+        }
+        .cam-title { font-weight: 700; font-size: 14px; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+        
+        .cam-header-right { display: flex; align-items: center; gap: 8px; }
+
+        /* Enable / Disable Button in Header */
+        .btn-toggle { 
+            padding: 5px 12px; 
+            font-size: 12px; 
+            font-weight: 700; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            border: none; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 4px; 
+        }
+        .btn-toggle-off { background: #ffe4e6; color: #e11d48; border: 1px solid #fecdd3; }
+        .btn-toggle-off:hover { background: #fecdd3; color: #be123c; }
+        .btn-toggle-on { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+        .btn-toggle-on:hover { background: #bbf7d0; color: #166534; }
+
+        .cam-video-container { background: #0f172a; position: relative; min-height: 240px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .cam-video { width: 100%; height: auto; display: block; object-fit: contain; }
+
+        .cam-card-footer { padding: 14px 18px; background: #ffffff; display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; border-top: 1px solid #f1f5f9; }
+        
+        .btn-cam { padding: 9px 14px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; border: none; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .btn-cam-scan { background: #e0e7ff; color: #4338ca; border: 1px solid #c7d2fe; flex: 1; justify-content: center; }
+        .btn-cam-scan:hover { background: #6366f1; color: white; border-color: #6366f1; }
+        .btn-cam-scan:disabled { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; cursor: not-allowed; }
+        .btn-cam-reset { background: #f8fafc; color: #64748b; border: 1px solid #e2e8f0; }
+        .btn-cam-reset:hover { background: #e2e8f0; color: #1e293b; }
+        .btn-cam-reset:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-cam-adjust { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+        .btn-cam-adjust:hover { background: #8b5cf6; color: white; border-color: #8b5cf6; }
+        .cam-toast { font-size: 12px; color: #059669; font-weight: 700; width: 100%; text-align: center; height: 16px; margin-top: 4px; opacity: 0; transition: opacity 0.3s; }
+
+        /* Master Control Section (Bottom) */
+        .master-card { 
+            background: var(--bg-card); 
+            border-radius: 20px; 
+            padding: 24px 32px; 
+            box-shadow: var(--shadow-card); 
+            border: 1px solid #edf2f7; 
+            text-align: center; 
+            position: relative;
+            overflow: hidden;
+        }
+        .master-card::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #c084fc, #818cf8, #38bdf8, #34d399);
+        }
+        
+        .btn-master { 
+            padding: 15px 36px; 
+            font-size: 16px; 
+            font-weight: 700; 
+            cursor: pointer; 
+            background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+            color: white; 
+            border: none; 
+            border-radius: 14px; 
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 10px; 
+            box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28); 
+        }
+        .btn-master:hover { 
+            background: linear-gradient(135deg, #4f46e5, #7c3aed); 
+            transform: translateY(-2px); 
+            box-shadow: 0 10px 24px rgba(99, 102, 241, 0.35); 
+        }
+        .btn-master:active { transform: translateY(0); }
+        .btn-master:disabled { opacity: 0.65; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        /* Result Display Banner */
+        .result-box { 
+            margin-top: 22px; 
+            font-size: 15px; 
+            background: #f0fdf4; 
+            padding: 18px 22px; 
+            border-radius: 14px; 
+            border: 1px solid var(--pastel-mint-border); 
+            text-align: left; 
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.06);
+            animation: fadeIn 0.3s ease-out;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .result-title { font-weight: 800; color: #047857; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px; }
+        .result-data { font-size: 20px; font-weight: 800; color: #065f46; word-break: break-all; font-family: monospace; }
+        .result-meta { margin-top: 10px; font-size: 13px; color: #047857; display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+        .cam-badge { background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 12px; }
+        .cap-link { color: #4f46e5; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px; background: #eef2ff; }
+        .cap-link:hover { background: #e0e7ff; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="/" class="nav-tab active">Multi-Cam Scanner</a>
+            <a href="/adjust" class="nav-tab">Adjust Cameras</a>
+            <a href="/cap_screen" class="nav-tab">Captured Screen</a>
+            <a href="/upload" class="nav-tab">Code Updater</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- Cameras Section (Top) -->
+        <div class="grid-header">
+            <h2>Active Camera Streams</h2>
+            <span id="cameraCountPill" class="cam-count-pill">Loading cameras...</span>
+        </div>
+
+        <div id="camerasGrid" class="camera-grid">
+            <!-- Dynamic camera cards populated by JS -->
+        </div>
+
+        <!-- Master Control (Bottom) -->
+        <div class="master-card">
+            <button type="button" id="btnMasterScan" class="btn-master" onclick="scanAllCameras()">
+                <span>Scan All Cameras</span>
+            </button>
+
+            <!-- Result Box -->
+            <div id="resultCard" class="result-box" style="display: none;">
+                <div class="result-title">Scan Result</div>
+                <div id="resultText" class="result-data">-</div>
+                <div class="result-meta">
+                    <span id="resultCam" class="cam-badge">Camera -</span>
+                    <span id="resultTime">Time: -</span>
+                    <a id="resultCapLink" href="/cap_screen" class="cap-link">View Captured Snapshot &rarr;</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let availableCameras = [];
+
+        function loadCameras() {
+            fetch('/cameras')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.cameras) {
+                        availableCameras = data.cameras;
+                        const enabledCount = data.cameras.filter(c => c.enabled !== false).length;
+                        document.getElementById('cameraCountPill').innerText = `${enabledCount} of ${data.cameras.length} Active`;
+                        renderCameraGrid(data.cameras);
+                    }
+                })
+                .catch(err => {
+                    console.error("Failed to load cameras:", err);
+                    document.getElementById('cameraCountPill').innerText = "Error loading cameras";
+                });
+        }
+
+        function renderCameraGrid(cameras) {
+            const grid = document.getElementById('camerasGrid');
+            grid.innerHTML = '';
+
+            if (cameras.length === 0) {
+                grid.innerHTML = '<div style="color: #64748b; grid-column: 1/-1; text-align: center; padding: 40px; background: white; border-radius: 16px; border: 1px dashed #cbd5e1;">No video camera devices found.</div>';
+                return;
+            }
+
+            cameras.forEach(cam => {
+                const isEnabled = cam.enabled !== false;
+                const card = document.createElement('div');
+                card.className = `camera-card ${isEnabled ? '' : 'is-disabled'}`;
+                card.id = `cam-card-${cam.camera_index}`;
+
+                card.innerHTML = `
+                    <div class="cam-card-header">
+                        <div class="cam-title" title="${cam.camera_name}">Cam ${cam.camera_index}: ${cam.camera_name.split('(')[0].trim()}</div>
+                        <div class="cam-header-right">
+                            <button type="button" id="btn-toggle-${cam.camera_index}" 
+                                class="btn-toggle ${isEnabled ? 'btn-toggle-off' : 'btn-toggle-on'}" 
+                                onclick="toggleCamera(${cam.camera_index}, ${isEnabled})">
+                                ${isEnabled ? 'Disable' : 'Enable'}
+                            </button>
+                        </div>
+                    </div>
+                    <div class="cam-video-container">
+                        <img id="video-${cam.camera_index}" class="cam-video" src="/video_feed/${cam.camera_index}?t=${Date.now()}" alt="Camera ${cam.camera_index}" />
+                    </div>
+                    <div class="cam-card-footer">
+                        <button type="button" id="btn-scan-${cam.camera_index}" class="btn-cam btn-cam-scan" 
+                            ${isEnabled ? '' : 'disabled'} onclick="scanSingleCamera(${cam.camera_index})">
+                            Scan QR
+                        </button>
+                        <button type="button" id="btn-reset-${cam.camera_index}" class="btn-cam btn-cam-reset" 
+                            ${isEnabled ? '' : 'disabled'} onclick="resetCamera(${cam.camera_index})">
+                            Reset
+                        </button>
+                        <a href="/adjust?camera=${cam.camera_index}" class="btn-cam btn-cam-adjust">Adjust</a>
+                        <div id="toast-${cam.camera_index}" class="cam-toast"></div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function toggleCamera(camIndex, currentEnabled) {
+            const nextState = !currentEnabled;
+            const btn = document.getElementById(`btn-toggle-${camIndex}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = nextState ? 'Enabling...' : 'Disabling...';
+            }
+
+            fetch('/cameras/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ camera: camIndex, enabled: nextState })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    loadCameras();
+                } else {
+                    alert(`Failed to toggle camera ${camIndex}: ` + (data.message || 'Error'));
+                }
+            })
+            .catch(err => {
+                alert(`Network error while toggling camera ${camIndex}`);
+            })
+            .finally(() => {
+                if (btn) btn.disabled = false;
+            });
+        }
+
+        function showResult(text, camIndex, camName, isSuccess) {
+            const card = document.getElementById('resultCard');
+            const resText = document.getElementById('resultText');
+            const resCam = document.getElementById('resultCam');
+            const resTime = document.getElementById('resultTime');
+            const resCapLink = document.getElementById('resultCapLink');
+
+            card.style.display = 'block';
+            if (isSuccess) {
+                card.style.background = '#f0fdf4';
+                card.style.borderColor = '#a7f3d0';
+                resText.innerText = text;
+                resText.style.color = '#065f46';
+                resCam.innerText = `Camera ${camIndex} (${camName ? camName.split('(')[0].trim() : ''})`;
+                resCam.style.display = 'inline-block';
+                resTime.innerText = `Time: ${new Date().toLocaleTimeString()}`;
+                resCapLink.style.display = 'inline-flex';
+            } else {
+                card.style.background = '#fff1f2';
+                card.style.borderColor = '#fecdd3';
+                resText.innerText = text;
+                resText.style.color = '#9f1239';
+                resCam.style.display = 'none';
+                resTime.innerText = `Time: ${new Date().toLocaleTimeString()}`;
+                resCapLink.style.display = 'none';
+            }
+        }
+
+        function scanAllCameras() {
+            const btn = document.getElementById('btnMasterScan');
+            btn.disabled = true;
+            btn.innerHTML = '<span>Scanning across active cameras...</span>';
+
+            fetch('/read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ retries: 4, retry_interval: 0.25 })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    showResult(data.data, data.camera_index, data.camera_name, true);
+                } else {
+                    showResult(data.message || "No QR code detected", null, null, false);
+                }
+            })
+            .catch(err => {
+                showResult("Connection error while scanning", null, null, false);
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.innerHTML = '<span>Scan All Cameras</span>';
+            });
+        }
+
+        function scanSingleCamera(index) {
+            const btn = document.getElementById(`btn-scan-${index}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Scanning...';
+            }
+
+            fetch('/read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ camera: index, retries: 4, retry_interval: 0.25 })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    showResult(data.data, data.camera_index, data.camera_name, true);
+                } else {
+                    showResult(data.message || `No QR detected on Camera ${index}`, null, null, false);
+                }
+            })
+            .catch(err => {
+                showResult(`Connection error on Camera ${index}`, null, null, false);
+            })
+            .finally(() => {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Scan QR';
+                }
+            });
+        }
+
+        function resetCamera(index) {
+            const btn = document.getElementById(`btn-reset-${index}`);
+            const toast = document.getElementById(`toast-${index}`);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = '...';
+            }
+
+            fetch(`/settings/reset?camera=${index}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    const img = document.getElementById(`video-${index}`);
+                    if (img) {
+                        img.src = `/video_feed/${index}?t=` + Date.now();
+                    }
+                    if (toast) {
+                        toast.innerText = "Reset Done!";
+                        toast.style.opacity = '1';
+                        setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+                    }
+                })
+                .catch(err => alert(`Failed to reset camera ${index}: ` + err))
+                .finally(() => {
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = 'Reset';
+                    }
+                });
+        }
+
+        window.onload = loadCameras;
+    </script>
+</body>
+</html>

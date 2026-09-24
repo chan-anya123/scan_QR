@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import argparse
+import concurrent.futures
 import datetime
 import json
 import logging
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -93,6 +95,8 @@ class Camera:
         self.height = height
         self.start_time = time.time()
         self.lock = threading.Lock()
+        self.cap_lock = threading.Lock()
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="qr_io")
 
         # Directories and configuration file paths
         self.base_dir = base_dir or os.path.dirname(os.path.abspath(__file__))
@@ -130,7 +134,8 @@ class Camera:
 
         self.running = True
         self.latest_frame = None
-        self.last_frame_time = 0
+        self.latest_raw_frame = None
+        self.last_frame_time = 0.0
 
         # Apply initial settings to camera hardware
         self.update_settings(self.settings)
@@ -217,30 +222,41 @@ class Camera:
 
     def switch_camera(self, new_index: int) -> int:
         """Dynamically switch the active camera index live and load its per-camera settings."""
-        with self.lock:
-            if self.index == new_index and self.cap.isOpened():
-                return self.index
-            log.info("Switching camera index from %s to %s...", self.index, new_index)
+        with self.cap_lock:
+            with self.lock:
+                if self.index == new_index and self.cap.isOpened():
+                    return self.index
+                log.info("Switching camera index from %s to %s...", self.index, new_index)
 
-            # 1. Save current camera settings to its own file before releasing
-            self._save_setup_unlocked(self.index)
+                # 1. Save current camera settings to its own file before releasing
+                self._save_setup_unlocked(self.index)
 
-            if self.cap.isOpened():
-                self.cap.release()
+                if self.cap.isOpened():
+                    self.cap.release()
 
-            time.sleep(0.15)  # Clean hardware release delay
-            self.index = new_index
-            self.latest_frame = None
-            self.cap = cv2.VideoCapture(new_index, cv2.CAP_V4L2)
-            if self.width:
-                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
-            if self.height:
-                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+                time.sleep(0.15)  # Clean hardware release delay
+                self.index = new_index
+                self.latest_frame = None
+                self.latest_raw_frame = None
+                self.cap = cv2.VideoCapture(new_index, cv2.CAP_V4L2)
+                if self.width:
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+                if self.height:
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
 
         # 2. Load and apply settings specific to new camera index
         new_cam_settings = self.load_saved_setup(new_index)
         self.update_settings(new_cam_settings)
         self.disable_autofocus(new_index)
+
+        # 3. Wait briefly (up to 1s) for the first valid frame from the new camera
+        t_wait = time.time()
+        while time.time() - t_wait < 1.0:
+            with self.lock:
+                if self.latest_frame is not None:
+                    break
+            time.sleep(0.05)
+
         return self.index
 
     def get_settings(self) -> dict:
@@ -390,8 +406,13 @@ class Camera:
         if not target:
             raise ValueError("Profile name or filename is required")
 
-        filename = target if target.endswith(".json") else f"{target}.json"
-        file_path = os.path.join(self.setups_dir, filename)
+        prof_id = sanitize_filename(target)
+        filename = f"{prof_id}.json" if not prof_id.endswith(".json") else prof_id
+        file_path = os.path.realpath(os.path.join(self.setups_dir, filename))
+
+        # Prevent path traversal outside setups directory
+        if not file_path.startswith(os.path.realpath(self.setups_dir)):
+            raise ValueError("Invalid profile path")
 
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"Setup profile file '{filename}' not found in {self.setups_dir}")
@@ -495,6 +516,26 @@ class Camera:
         self.save_current_setup(self.index)
         return self.get_settings()
 
+    def _async_save_capture(self, save_path: str, frame: np.ndarray, data: str):
+        """Asynchronous disk write worker."""
+        try:
+            cv2.imwrite(save_path, frame)
+            log.info("Saved/Overwrote latest QR image for type '%s' at: %s", data, save_path)
+            
+            # Keep only 10 most recent captures
+            try:
+                files = [os.path.join(self.captures_dir, f) for f in os.listdir(self.captures_dir) if f.endswith(".jpg")]
+                files.sort(key=os.path.getmtime, reverse=True)
+                if len(files) > 10:
+                    for f_to_delete in files[10:]:
+                        os.remove(f_to_delete)
+                        log.info("Deleted old capture to save space: %s", f_to_delete)
+            except Exception as clean_e:
+                log.warning("Failed to clean up old captures: %s", clean_e)
+                
+        except Exception as e:
+            log.error("Failed to save QR capture image to disk: %s", e)
+
     def set_last_qr_capture(self, frame: np.ndarray, data: str):
         """Save frame snapshot. Overwrites previous image of the SAME QR code type/data to conserve disk space."""
         now = time.time()
@@ -512,11 +553,9 @@ class Camera:
             self.last_qr_filename = filename
 
         if frame is not None:
-            try:
-                cv2.imwrite(save_path, frame)
-                log.info("Saved/Overwrote latest QR image for type '%s' at: %s", data, save_path)
-            except Exception as e:
-                log.error("Failed to save QR capture image to disk: %s", e)
+            # Dispatch disk write to thread pool to prevent blocking HTTP /read response
+            frame_to_save = frame.copy()
+            self.executor.submit(self._async_save_capture, save_path, frame_to_save, data)
 
     def get_last_qr_capture(self):
         """Get the latest saved QR capture frame, decoded text, timestamp, and saved filename."""
@@ -529,13 +568,13 @@ class Camera:
         """Continuous background thread loop to grab and process camera frames."""
         consecutive_failures = 0
         while self.running:
-            with self.lock:
+            with self.cap_lock:
                 is_opened = self.cap.isOpened()
 
             if not is_opened:
                 log.warning("Camera %s disconnected. Retrying reconnection...", self.index)
                 time.sleep(1.0)
-                with self.lock:
+                with self.cap_lock:
                     if self.cap.isOpened():
                         self.cap.release()
                     self.cap.open(self.index, cv2.CAP_V4L2)
@@ -545,8 +584,12 @@ class Camera:
                         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
                 continue
 
-            with self.lock:
+            # 1. Grab hardware frame without holding state lock
+            with self.cap_lock:
                 ok, frame = self.cap.read()
+
+            # 2. Read current settings snapshot under lock
+            with self.lock:
                 b = self.settings.get("brightness", 0)
                 c = self.settings.get("contrast", 1.0)
                 exp = self.settings.get("exposure", 0)
@@ -554,6 +597,7 @@ class Camera:
 
             if ok and frame is not None:
                 consecutive_failures = 0
+                raw_frame = frame.copy()
                 processed = frame
 
                 alpha = c * (2.0 ** (exp * 0.3)) if exp != 0 else c
@@ -568,13 +612,14 @@ class Camera:
 
                 now = time.time()
                 with self.lock:
+                    self.latest_raw_frame = raw_frame
                     self.latest_frame = processed
                     self.last_frame_time = now
             else:
                 consecutive_failures += 1
                 if consecutive_failures >= 10:
                     log.warning("Failed 10 consecutive frame reads from camera %s. Re-opening...", self.index)
-                    with self.lock:
+                    with self.cap_lock:
                         self.cap.release()
                     consecutive_failures = 0
                 time.sleep(0.05)
@@ -587,6 +632,20 @@ class Camera:
             if self.latest_frame is None:
                 return None
             return self.latest_frame.copy()
+
+    def read_raw_frame(self) -> np.ndarray:
+        """Return a copy of the latest raw unmanipulated frame."""
+        with self.lock:
+            if self.latest_raw_frame is None:
+                return None
+            return self.latest_raw_frame.copy()
+
+    def read_frame_with_time(self):
+        """Return a copy of the latest processed frame along with its capture timestamp."""
+        with self.lock:
+            if self.latest_frame is None:
+                return None, 0.0
+            return self.latest_frame.copy(), self.last_frame_time
 
     def is_ready(self) -> bool:
         """Check if camera is active and producing fresh frames."""
@@ -612,101 +671,121 @@ class Camera:
         }
 
     def release(self):
-        """Safely stop capture loop and release camera resource."""
+        """Safely stop capture loop, thread executor, and release camera resource."""
         self.running = False
-        with self.lock:
-            if self.cap.isOpened():
-                self.cap.release()
-                log.info("Camera %s released", self.index)
+        with self.cap_lock:
+            with self.lock:
+                if self.cap.isOpened():
+                    self.cap.release()
+                    log.info("Camera %s released", self.index)
+        try:
+            self.executor.shutdown(wait=False)
+        except Exception:
+            pass
 
 def read_current_qr(camera: Camera, retries: int = 3, retry_interval: float = 0.2):
-    """Attempt to decode a QR code from the camera with retries and grayscale fallback."""
+    """Attempt to decode a QR code from the camera with retries and robust multi-stage decoding."""
     last_frame_ok = False
     for attempt in range(1, retries + 1):
         frame = camera.read_frame()
-        if frame is None:
+        raw_frame = camera.read_raw_frame()
+        if frame is None and raw_frame is None:
             if attempt < retries:
                 time.sleep(0.05)
             continue
         last_frame_ok = True
 
-        results = decode_qr(frame)
+        target_frame = frame if frame is not None else raw_frame
+        results = decode_qr(target_frame)
+
+        # Fallback 1: Grayscale on target frame
         if not results:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(target_frame, cv2.COLOR_BGR2GRAY)
             results = decode_qr(gray)
 
+        # Fallback 2: Raw unmanipulated frame if software threshold/filters degraded the image
+        if not results and raw_frame is not None and target_frame is not raw_frame:
+            results = decode_qr(raw_frame)
+            if not results:
+                raw_gray = cv2.cvtColor(raw_frame, cv2.COLOR_BGR2GRAY)
+                results = decode_qr(raw_gray)
+                # Fallback 3: Adaptive threshold on raw grayscale for high glare / uneven lighting
+                if not results:
+                    try:
+                        adaptive = cv2.adaptiveThreshold(
+                            raw_gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 51, 10
+                        )
+                        results = decode_qr(adaptive)
+                    except Exception:
+                        pass
+
         if results:
-            qr_text = results[0].data.decode("utf-8", errors="replace")
-            # Annotate green outline, QR name, and timestamp on captured image
-            annotated = frame.copy()
+            qr_texts = []
+            annotated = target_frame.copy()
             h_img, w_img = annotated.shape[:2]
+            ts_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            try:
-                points = results[0].polygon
-                if points and len(points) >= 4:
-                    pts = np.array([(p.x, p.y) for p in points], dtype=np.int32).reshape((-1, 1, 2))
-                    cv2.polylines(annotated, [pts], True, (0, 255, 0), 3)
-                elif results[0].rect:
-                    rect = results[0].rect
-                    cv2.rectangle(annotated, (rect.left, rect.top), (rect.left + rect.width, rect.top + rect.height), (0, 255, 0), 3)
-            except Exception as e:
-                log.debug("Failed to draw QR bounding outline: %s", e)
+            for res in results:
+                qr_text = res.data.decode("utf-8", errors="replace")
+                qr_texts.append(qr_text)
 
-            # Draw sleek, compact dark badge label directly UNDER the green QR box
-            try:
-                # Calculate bounding box coordinates
-                if points and len(points) >= 4:
-                    xs = [p.x for p in points]
-                    ys = [p.y for p in points]
-                    x_min, x_max = min(xs), max(xs)
-                    y_min, y_max = min(ys), max(ys)
-                elif results[0].rect:
-                    rect = results[0].rect
-                    x_min, x_max = rect.left, rect.left + rect.width
-                    y_min, y_max = rect.top, rect.top + rect.height
-                else:
-                    x_min, x_max, y_min, y_max = 20, 200, 20, 200
+                try:
+                    points = getattr(res, "polygon", None)
+                    rect = getattr(res, "rect", None)
+                    if points and len(points) >= 4:
+                        pts = np.array([(p.x, p.y) for p in points], dtype=np.int32).reshape((-1, 1, 2))
+                        cv2.polylines(annotated, [pts], True, (0, 255, 0), 3)
+                        xs = [p.x for p in points]
+                        ys = [p.y for p in points]
+                        x_min, x_max = min(xs), max(xs)
+                        y_min, y_max = min(ys), max(ys)
+                    elif rect:
+                        x_min, x_max = rect.left, rect.left + rect.width
+                        y_min, y_max = rect.top, rect.top + rect.height
+                        cv2.rectangle(annotated, (x_min, y_min), (x_max, y_max), (0, 255, 0), 3)
+                    else:
+                        x_min, x_max, y_min, y_max = 20, 200, 20, 200
 
-                # Determine label vertical position right below the QR box
-                if y_max + 48 > h_img:
-                    # Place above box if near bottom edge of camera image
-                    text_y1 = max(22, y_min - 24)
-                    text_y2 = text_y1 + 18
-                else:
-                    text_y1 = y_max + 22
-                    text_y2 = y_max + 40
+                    # Determine label vertical position right below the QR box
+                    if y_max + 48 > h_img:
+                        # Place above box if near bottom edge of camera image
+                        text_y1 = max(22, y_min - 24)
+                        text_y2 = text_y1 + 18
+                    else:
+                        text_y1 = y_max + 22
+                        text_y2 = y_max + 40
 
-                # Text strings
-                ts_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                line1 = f"{qr_text}"
-                line2 = f"{ts_str}"
+                    # Text strings
+                    line1 = f"{qr_text}"
+                    line2 = f"{ts_str}"
 
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                scale1, scale2 = 0.6, 0.45
-                thick1, thick2 = 2, 1
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    scale1, scale2 = 0.6, 0.45
+                    thick1, thick2 = 2, 1
 
-                # Calculate badge background dimensions
-                (t1_w, t1_h), _ = cv2.getTextSize(line1, font, scale1, thick1)
-                (t2_w, t2_h), _ = cv2.getTextSize(line2, font, scale2, thick2)
-                max_w = max(t1_w, t2_w) + 16
+                    # Calculate badge background dimensions
+                    (t1_w, t1_h), _ = cv2.getTextSize(line1, font, scale1, thick1)
+                    (t2_w, t2_h), _ = cv2.getTextSize(line2, font, scale2, thick2)
+                    max_w = max(t1_w, t2_w) + 16
 
-                bg_x1 = max(0, x_min)
-                bg_x2 = min(w_img, bg_x1 + max_w)
-                bg_y1 = text_y1 - t1_h - 6
-                bg_y2 = text_y2 + 6
+                    bg_x1 = max(0, x_min)
+                    bg_x2 = min(w_img, bg_x1 + max_w)
+                    bg_y1 = text_y1 - t1_h - 6
+                    bg_y2 = text_y2 + 6
 
-                # Draw compact dark badge box with thin green border right below QR box
-                cv2.rectangle(annotated, (bg_x1, bg_y1), (bg_x2, bg_y2), (20, 24, 33), -1)
-                cv2.rectangle(annotated, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 255, 0), 1)
+                    # Draw compact dark badge box with thin green border right below QR box
+                    cv2.rectangle(annotated, (bg_x1, bg_y1), (bg_x2, bg_y2), (20, 24, 33), -1)
+                    cv2.rectangle(annotated, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 255, 0), 1)
 
-                # Draw text inside badge
-                cv2.putText(annotated, line1, (bg_x1 + 8, text_y1), font, scale1, (0, 255, 0), thick1, cv2.LINE_AA)
-                cv2.putText(annotated, line2, (bg_x1 + 8, text_y2), font, scale2, (220, 225, 235), thick2, cv2.LINE_AA)
-            except Exception as e:
-                log.debug("Failed to overlay text on capture frame: %s", e)
+                    # Draw text inside badge
+                    cv2.putText(annotated, line1, (bg_x1 + 8, text_y1), font, scale1, (0, 255, 0), thick1, cv2.LINE_AA)
+                    cv2.putText(annotated, line2, (bg_x1 + 8, text_y2), font, scale2, (220, 225, 235), thick2, cv2.LINE_AA)
+                except Exception as e:
+                    log.debug("Failed to overlay text on capture frame: %s", e)
 
-            camera.set_last_qr_capture(annotated, qr_text)
-            return qr_text
+            joined_texts = ", ".join(qr_texts)
+            camera.set_last_qr_capture(annotated, joined_texts)
+            return joined_texts
 
         if attempt < retries:
             time.sleep(retry_interval)
@@ -715,7 +794,7 @@ def read_current_qr(camera: Camera, retries: int = 3, retry_interval: float = 0.
         raise RuntimeError("Camera is disconnected or not producing valid frames")
     return None
 
-def create_app(camera: Camera, default_retries: int, default_retry_interval: float) -> Flask:
+def create_app(camera: Camera, default_retries: int, default_retry_interval: float, enable_upload: bool = True) -> Flask:
     app = Flask(__name__, template_folder="templates")
 
     @app.route("/captures/<path:filename>", methods=["GET"])
@@ -800,7 +879,7 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
     def cap_screen():
         frame, data, timestamp, filename = camera.get_last_qr_capture()
         
-        raw_requested = request.args.get("raw") == "1" or request.args.get("image") == "1" or request.path.endswith(".jpg")
+        raw_requested = request.args.get("raw") == "1" or request.args.get("image") == "1"
         json_requested = request.args.get("json") == "1" or request.is_json
 
         if raw_requested:
@@ -852,17 +931,27 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
         return jsonify({"status": "ok", "message": "Camera hardware & software restored to dynamic camera defaults", "settings": defaults}), 200
 
     def generate_frames():
+        last_sent_time = 0.0
         while True:
-            frame = camera.read_frame()
+            frame, frame_time = camera.read_frame_with_time()
             if frame is None:
-                time.sleep(0.1)
+                time.sleep(0.05)
                 continue
-            
-            ret, buffer = cv2.imencode('.jpg', frame)
+
+            # Skip re-encoding if this frame has already been streamed
+            if frame_time == last_sent_time:
+                time.sleep(0.01)
+                continue
+
+            last_sent_time = frame_time
+            ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if not ret:
+                continue
+
             frame_bytes = buffer.tobytes()
-            
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            time.sleep(0.03)  # Cap at ~30 FPS to prevent 100% CPU usage
 
     @app.route("/video_feed", methods=["GET"])
     def video_feed():
@@ -883,11 +972,37 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
         retries = body.get("retries", default_retries)
         retry_interval = body.get("retry_interval", default_retry_interval)
 
+        # Allow selecting camera directly via JSON body or query parameter (?camera=X or ?index=X)
+        target_cam = None
+        for key in ["camera_index", "index", "camera"]:
+            if key in body and body[key] is not None:
+                target_cam = body[key]
+                break
+        if target_cam is None:
+            for key in ["camera", "index", "camera_index"]:
+                if key in request.args:
+                    target_cam = request.args[key]
+                    break
+
+        if target_cam is not None:
+            try:
+                target_idx = int(target_cam)
+                if camera.index != target_idx:
+                    camera.switch_camera(target_idx)
+            except Exception as e:
+                return jsonify({
+                    "status": "error",
+                    "error_code": "CAMERA_SWITCH_ERROR",
+                    "message": f"Failed to switch to camera {target_cam}: {str(e)}",
+                    "timestamp": time.time()
+                }), 400
+
         if not camera.is_ready():
             return jsonify({
                 "status": "error",
                 "error_code": "CAMERA_NOT_READY",
                 "message": "Camera is disconnected or frame grabber is failing",
+                "camera_index": camera.index,
                 "timestamp": time.time()
             }), 503
 
@@ -899,6 +1014,7 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
                 "status": "error",
                 "error_code": "SCAN_ERROR",
                 "message": str(e),
+                "camera_index": camera.index,
                 "timestamp": time.time()
             }), 500
 
@@ -906,21 +1022,29 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
             return jsonify({
                 "status": "ok",
                 "data": text,
+                "camera_index": camera.index,
                 "timestamp": time.time()
             }), 200
 
         return jsonify({
             "status": "no_qr",
-            "message": "No QR code detected after retries",
+            "message": " ",
+            "data": " ",
+            "camera_index": camera.index,
             "timestamp": time.time()
         }), 200
 
     @app.route("/upload", methods=["GET"])
     def upload_page():
+        if not enable_upload:
+            return "OTA Upload has been disabled on this server.", 403
         return render_template("upload.html")
 
     @app.route("/upload", methods=["POST"])
     def upload_code():
+        if not enable_upload:
+            return jsonify({"status": "error", "message": "OTA upload is disabled on this server"}), 403
+
         if "file" not in request.files:
             return jsonify({"status": "error", "message": "No file uploaded"}), 400
 
@@ -965,9 +1089,12 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
         def restart_service():
             time.sleep(1.0)
             try:
-                subprocess.run(["sudo", "systemctl", "restart", "qr-http-server"], timeout=2)
-            except Exception:
-                pass
+                # Systemd allows local user to restart service via polkit without sudo
+                res = subprocess.run(["systemctl", "restart", "qr-http-server"], timeout=5)
+                if res.returncode != 0:
+                    subprocess.run(["sudo", "-n", "systemctl", "restart", "qr-http-server"], timeout=5)
+            except Exception as ex:
+                log.error("Failed to restart service: %s", ex)
             os._exit(0)
 
         threading.Thread(target=restart_service, daemon=True).start()
@@ -988,14 +1115,38 @@ def main():
     parser.add_argument("--height", type=int, default=480, help="Camera height (default: 480)")
     parser.add_argument("--retries", type=int, default=3, help="Default frame attempts per /read call")
     parser.add_argument("--retry-interval", type=float, default=0.2, help="Default seconds between retry attempts")
+    parser.add_argument("--disable-upload", action="store_true", help="Disable OTA code upload endpoint (/upload)")
+    parser.add_argument("--use-waitress", action="store_true", help="Use Waitress production WSGI server instead of Flask dev server")
     args = parser.parse_args()
 
     camera = Camera(index=args.camera_index, width=args.width, height=args.height)
-    app = create_app(camera, args.retries, args.retry_interval)
+    app = create_app(
+        camera,
+        args.retries,
+        args.retry_interval,
+        enable_upload=not args.disable_upload,
+    )
+
+    def handle_signal(sig, frame):
+        log.info("Received signal %s. Shutting down gracefully...", sig)
+        camera.release()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
 
     log.info("QR HTTP server listening on %s:%s", args.host, args.port)
     try:
-        app.run(host=args.host, port=args.port, threaded=True)
+        if args.use_waitress:
+            try:
+                from waitress import serve
+                log.info("Starting production Waitress WSGI server on %s:%s (threads=16)...", args.host, args.port)
+                serve(app, host=args.host, port=args.port, threads=16)
+            except ImportError:
+                log.warning("Waitress package not found. Falling back to Flask dev server.")
+                app.run(host=args.host, port=args.port, threaded=True)
+        else:
+            app.run(host=args.host, port=args.port, threaded=True)
     finally:
         camera.release()
 

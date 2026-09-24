@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.bak
+.DS_Store
+captures/
+camera_setups/
+camera_setup*.json
+venv/
+.env

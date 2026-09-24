@@ -1,0 +1,17 @@
+{
+  "name": "default_cam0",
+  "profile_name": "default_cam0",
+  "filename": "default_cam0.json",
+  "brightness": 0,
+  "contrast": 1.0,
+  "exposure": 0,
+  "threshold": 0,
+  "settings": {
+    "brightness": 0,
+    "contrast": 1.0,
+    "exposure": 0,
+    "threshold": 0
+  },
+  "saved_at": 1790216042.1731813,
+  "saved_at_iso": "2026-09-24 09:14:02"
+}

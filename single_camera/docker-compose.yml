@@ -1,0 +1,17 @@
+services:
+  qr-server:
+    build: .
+    container_name: qr_http_server
+    restart: always
+    privileged: true
+    ports:
+      - "5050:5050"
+    
+    # Mount files and directories so they persist and can be edited from the host
+    volumes:
+      - /dev:/dev  # Share all hardware devices to allow hot-plugging cameras
+      - ./captures:/app/captures
+      - ./camera_setup.json:/app/camera_setup.json
+      - ./camera_setups:/app/camera_setups
+      # If you want to enable the web-based OTA update feature, you might also want to mount the script itself:
+      # - ./qr_http_server.py:/app/qr_http_server.py

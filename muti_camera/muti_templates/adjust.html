@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Adjust Camera - Multi-Cam System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-page: #f6f8fd;
+            --bg-card: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --pastel-purple: #8b5cf6;
+            --pastel-indigo: #6366f1;
+            --pastel-blue: #38bdf8;
+            --pastel-mint: #10b981;
+            --border-subtle: #e2e8f0;
+            --shadow-card: 0 10px 25px -5px rgba(148, 163, 184, 0.12), 0 8px 10px -6px rgba(148, 163, 184, 0.08);
+        }
+
+        * { box-sizing: border-box; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; }
+        body { 
+            background: var(--bg-page); 
+            background-image: radial-gradient(at 0% 0%, rgba(224, 231, 255, 0.45) 0px, transparent 50%),
+                              radial-gradient(at 100% 0%, rgba(220, 252, 231, 0.4) 0px, transparent 50%),
+                              radial-gradient(at 50% 100%, rgba(254, 226, 226, 0.3) 0px, transparent 50%);
+            color: var(--text-main); 
+            margin: 0; 
+            padding: 0; 
+            min-height: 100vh; 
+        }
+        
+        .nav-bar { 
+            background: rgba(255, 255, 255, 0.85); 
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(226, 232, 240, 0.8); 
+            padding: 10px 24px; 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+        }
+        .nav-container { max-width: 1200px; margin: 0 auto; display: flex; gap: 8px; align-items: center; justify-content: center; }
+        .nav-tab { 
+            padding: 10px 18px; 
+            text-decoration: none; 
+            color: var(--text-muted); 
+            font-weight: 600; 
+            font-size: 14px; 
+            border-radius: 10px; 
+            transition: all 0.2s; 
+        }
+        .nav-tab:hover { color: #4338ca; background: #eef2ff; }
+        .nav-tab.active { color: #4f46e5; background: #ede9fe; font-weight: 700; }
+
+        .container { max-width: 1200px; margin: 24px auto 40px auto; padding: 0 20px; }
+
+        /* Camera Selector Header */
+        .selector-card { 
+            background: var(--bg-card); 
+            border-radius: 18px; 
+            padding: 18px 24px; 
+            border: 1px solid #edf2f7; 
+            margin-bottom: 24px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            flex-wrap: wrap; 
+            gap: 14px; 
+            box-shadow: var(--shadow-card);
+        }
+        .selector-label { font-weight: 800; color: #1e293b; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .cam-select { 
+            padding: 10px 18px; 
+            background: #f8fafc; 
+            color: #1e293b; 
+            border: 1px solid #cbd5e1; 
+            border-radius: 10px; 
+            font-weight: 700; 
+            font-size: 14px; 
+            outline: none; 
+            cursor: pointer; 
+            min-width: 280px; 
+            transition: all 0.2s;
+        }
+        .cam-select:focus { border-color: #6366f1; background: white; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15); }
+
+        .grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 24px; }
+        @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+
+        .card { 
+            background: var(--bg-card); 
+            border-radius: 18px; 
+            padding: 26px; 
+            box-shadow: var(--shadow-card); 
+            border: 1px solid #edf2f7; 
+        }
+        h2 { 
+            margin-top: 0; 
+            font-size: 18px; 
+            font-weight: 800;
+            color: #1e293b; 
+            margin-bottom: 18px; 
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between; 
+            letter-spacing: -0.3px;
+        }
+        
+        .video-box { border-radius: 14px; overflow: hidden; background: #0f172a; display: flex; justify-content: center; align-items: center; min-height: 280px; border: 1px solid var(--border-subtle); }
+        .video-box img { width: 100%; height: auto; display: block; object-fit: contain; }
+
+        .control-group { margin-bottom: 18px; }
+        .control-label { display: flex; justify-content: space-between; font-weight: 700; font-size: 14px; margin-bottom: 8px; color: #334155; }
+        .control-value { color: #6366f1; font-weight: 800; background: #eef2ff; padding: 2px 8px; border-radius: 6px; font-size: 13px; }
+        
+        input[type="range"] { 
+            width: 100%; 
+            height: 8px; 
+            background: #e2e8f0; 
+            border-radius: 4px; 
+            outline: none; 
+            -webkit-appearance: none; 
+            cursor: pointer; 
+        }
+        input[type="range"]::-webkit-slider-thumb { 
+            -webkit-appearance: none; 
+            width: 20px; 
+            height: 20px; 
+            border-radius: 50%; 
+            background: #6366f1; 
+            cursor: pointer; 
+            border: 3px solid #fff; 
+            box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4); 
+            transition: transform 0.15s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+        .btn { 
+            padding: 13px 20px; 
+            border: none; 
+            border-radius: 12px; 
+            font-weight: 700; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            font-size: 14px; 
+            display: inline-flex; 
+            align-items: center; 
+            justify-content: center; 
+            gap: 8px; 
+        }
+        .btn-auto { 
+            background: linear-gradient(135deg, #6366f1, #8b5cf6); 
+            color: white; 
+            width: 100%; 
+            margin-bottom: 14px; 
+            box-shadow: 0 4px 14px rgba(99, 102, 241, 0.25);
+        }
+        .btn-auto:hover { 
+            background: linear-gradient(135deg, #4f46e5, #7c3aed); 
+            transform: translateY(-1px);
+            box-shadow: 0 8px 18px rgba(99, 102, 241, 0.35);
+        }
+        .btn-reset { 
+            background: #f8fafc; 
+            color: #64748b; 
+            border: 1px solid #e2e8f0; 
+            width: 100%; 
+        }
+        .btn-reset:hover { background: #e2e8f0; color: #1e293b; }
+
+        .toast-msg { font-size: 13px; color: #059669; font-weight: 700; opacity: 0; transition: opacity 0.3s; background: #ecfdf5; padding: 4px 10px; border-radius: 8px; border: 1px solid #a7f3d0; }
+    </style>
+</head>
+<body>
+    <nav class="nav-bar">
+        <div class="nav-container">
+            <a href="/" class="nav-tab">Multi-Cam Scanner</a>
+            <a href="/adjust" class="nav-tab active">Adjust Cameras</a>
+            <a href="/cap_screen" class="nav-tab">Captured Screen</a>
+            <a href="/upload" class="nav-tab">Code Updater</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- Camera Selector -->
+        <div class="selector-card">
+            <div class="selector-label">
+                <span>Select Camera to Adjust:</span>
+            </div>
+            <select id="cameraSelector" class="cam-select" onchange="onCameraChange(this.value)">
+                <option value="0">Loading cameras...</option>
+            </select>
+        </div>
+
+        <div class="grid">
+            <!-- Left: Live Preview -->
+            <div class="card">
+                <h2>
+                    <span id="previewTitle">Live Feed (Camera 0)</span>
+                    <span id="toastMsg" class="toast-msg">Applied</span>
+                </h2>
+                <div class="video-box">
+                    <img id="videoPreview" src="/video_feed/0" alt="Camera Stream" />
+                </div>
+                <div style="margin-top: 18px;">
+                    <button type="button" class="btn btn-reset" onclick="restoreFactoryDefaults()">Reset Active Camera Defaults</button>
+                </div>
+            </div>
+
+            <!-- Right: Controls -->
+            <div class="card">
+                <h2>Image Adjustments</h2>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Brightness</span>
+                        <span class="control-value" id="brightnessVal">0</span>
+                    </div>
+                    <input type="range" id="brightness" min="-100" max="100" value="0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Exposure</span>
+                        <span class="control-value" id="exposureVal">0</span>
+                    </div>
+                    <input type="range" id="exposure" min="-5" max="5" value="0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Contrast</span>
+                        <span class="control-value" id="contrastVal">1.0</span>
+                    </div>
+                    <input type="range" id="contrast" min="0.1" max="3.0" step="0.1" value="1.0" oninput="onControlChange()">
+                </div>
+
+                <div class="control-group">
+                    <div class="control-label">
+                        <span>Threshold (0 = Off)</span>
+                        <span class="control-value" id="thresholdVal">Off</span>
+                    </div>
+                    <input type="range" id="threshold" min="0" max="255" value="0" oninput="onControlChange()">
+                </div>
+
+                <button type="button" class="btn btn-auto" onclick="triggerAutoAdjust()">Smart Auto-Adjust (Active Camera)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentCameraIndex = 0;
+        let changeDebounce = null;
+
+        function getUrlCameraParam() {
+            const params = new URLSearchParams(window.location.search);
+            return params.get('camera') || params.get('index');
+        }
+
+        function loadCameras() {
+            const urlCam = getUrlCameraParam();
+            fetch('/cameras')
+                .then(r => r.json())
+                .then(data => {
+                    const sel = document.getElementById('cameraSelector');
+                    sel.innerHTML = '';
+                    if (data.status === 'ok' && data.cameras && data.cameras.length > 0) {
+                        data.cameras.forEach((cam, i) => {
+                            const opt = document.createElement('option');
+                            opt.value = cam.camera_index;
+                            opt.innerText = `Camera ${cam.camera_index}: ${cam.camera_name.split('(')[0].trim()}`;
+                            if (urlCam !== null && parseInt(urlCam) === cam.camera_index) {
+                                opt.selected = true;
+                                currentCameraIndex = cam.camera_index;
+                            } else if (urlCam === null && i === 0) {
+                                opt.selected = true;
+                                currentCameraIndex = cam.camera_index;
+                            }
+                            sel.appendChild(opt);
+                        });
+                    }
+                    onCameraChange(currentCameraIndex);
+                })
+                .catch(err => console.error("Failed to load cameras:", err));
+        }
+
+        function onCameraChange(camIndex) {
+            currentCameraIndex = parseInt(camIndex);
+            document.getElementById('previewTitle').innerText = `Live Feed (Camera ${currentCameraIndex})`;
+            document.getElementById('videoPreview').src = `/video_feed/${currentCameraIndex}?t=` + Date.now();
+            loadSettingsForCamera(currentCameraIndex);
+        }
+
+        function loadSettingsForCamera(camIndex) {
+            fetch(`/settings?camera=${camIndex}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok' && data.settings) {
+                        const s = data.settings;
+                        document.getElementById('brightness').value = s.brightness;
+                        document.getElementById('brightnessVal').innerText = s.brightness;
+                        document.getElementById('contrast').value = s.contrast;
+                        document.getElementById('contrastVal').innerText = s.contrast.toFixed(1);
+                        document.getElementById('exposure').value = s.exposure;
+                        document.getElementById('exposureVal').innerText = s.exposure;
+                        document.getElementById('threshold').value = s.threshold;
+                        document.getElementById('thresholdVal').innerText = s.threshold === 0 ? "Off" : s.threshold;
+                    }
+                })
+                .catch(err => console.error("Failed to load camera settings:", err));
+        }
+
+        function onControlChange() {
+            const b = parseInt(document.getElementById('brightness').value);
+            const c = parseFloat(document.getElementById('contrast').value);
+            const exp = parseInt(document.getElementById('exposure').value);
+            const t = parseInt(document.getElementById('threshold').value);
+
+            document.getElementById('brightnessVal').innerText = b;
+            document.getElementById('contrastVal').innerText = c.toFixed(1);
+            document.getElementById('exposureVal').innerText = exp;
+            document.getElementById('thresholdVal').innerText = t === 0 ? "Off" : t;
+
+            clearTimeout(changeDebounce);
+            changeDebounce = setTimeout(() => {
+                fetch(`/settings?camera=${currentCameraIndex}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        brightness: b,
+                        contrast: c,
+                        exposure: exp,
+                        threshold: t
+                    })
+                })
+                .then(r => r.json())
+                .then(() => showToast("Saved"))
+                .catch(err => console.error("Failed to update settings:", err));
+            }, 100);
+        }
+
+        function triggerAutoAdjust() {
+            fetch(`/settings/auto_adjust?camera=${currentCameraIndex}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    loadSettingsForCamera(currentCameraIndex);
+                    document.getElementById('videoPreview').src = `/video_feed/${currentCameraIndex}?t=` + Date.now();
+                    showToast("Auto-Adjust Applied");
+                })
+                .catch(err => alert("Auto-adjust failed: " + err));
+        }
+
+        function restoreFactoryDefaults() {
+            fetch(`/settings/reset?camera=${currentCameraIndex}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    loadSettingsForCamera(currentCameraIndex);
+                    document.getElementById('videoPreview').src = `/video_feed/${currentCameraIndex}?t=` + Date.now();
+                    showToast("Restored to Factory Defaults");
+                })
+                .catch(err => alert("Reset failed: " + err));
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toastMsg');
+            toast.innerText = msg;
+            toast.style.opacity = '1';
+            setTimeout(() => { toast.style.opacity = '0'; }, 2000);
+        }
+
+        window.onload = loadCameras;
+    </script>
+</body>
+</html>
