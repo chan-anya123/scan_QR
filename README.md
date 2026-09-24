@@ -25,12 +25,28 @@ A high-performance, standalone Linux/Ubuntu vision application (no ROS required)
 
 ## Project Structure
 
-This repository contains several variations of the QR server tailored for different hardware setups and use cases. Each folder contains its own isolated server script and `docker-compose.yml` for easy deployment.
+This repository contains four distinct variations of the QR server, each tailored for different hardware setups and industrial use cases. Each folder acts as its own standalone project with its own `qr_http_server.py` and `docker-compose.yml` for easy deployment.
 
-- **`single_camera/`**: The core version. Reads a single QR code from a single connected USB camera. Best for simple inspection stations.
-- **`muti_qr/`**: Advanced single-camera version. Capable of scanning and returning multiple QR codes simultaneously from the same camera frame.
-- **`muti_camera/`**: Multi-camera support. Designed to handle multiple physical USB cameras plugged into the same machine, allowing switching between them.
-- **`ros_camera/`**: ROS (Robot Operating System) compatible version. Subscribes to ROS image topics instead of reading directly from hardware USB devices (`/dev/video*`).
+### 1. `single_camera/` (Core Single-QR Version)
+- **Hardware:** 1 USB Camera.
+- **Functionality:** Optimized to read exactly **one** QR code per frame. If it detects a QR code, it returns the text. If it doesn't, it returns a blank string (`" "`).
+- **Best for:** Standard inspection stations, basic AGV alignment tasks, or simple kiosks where only one barcode is presented at a time.
+
+### 2. `muti_qr/` (Advanced Multi-QR Version)
+- **Hardware:** 1 USB Camera.
+- **Functionality:** Capable of detecting and decoding **multiple QR codes simultaneously** within the same camera frame. It draws bounding boxes around all detected codes and returns a comma-separated string of all decoded texts (e.g., `"QR1, QR2, QR3"`).
+- **Storage Management:** Includes an auto-cleanup feature that automatically deletes old captured images to ensure the `captures/` folder never exceeds 10 images, preventing disk space exhaustion.
+- **Best for:** Pallet scanning, multi-item sorting, or reading a cluster of labels at once.
+
+### 3. `muti_camera/` (Hardware Switcher Version)
+- **Hardware:** Multiple physical USB Cameras plugged into the same machine.
+- **Functionality:** Allows live, on-the-fly switching between different physical cameras via the API (`/cameras/switch`). Each camera maintains its own independent hardware settings profile (brightness, contrast, etc.) which is saved and loaded automatically when switching.
+- **Best for:** Multi-angle inspection cells where a robot needs to look at a part from different cameras sequentially without running multiple server instances.
+
+### 4. `ros_camera/` (Robot Operating System Version)
+- **Hardware:** Any camera managed by a ROS network.
+- **Functionality:** Bypasses direct hardware access (`/dev/video*`). Instead, it subscribes to ROS image topics, converts the incoming ROS Image messages to OpenCV frames, and performs the same zero-latency QR decoding. 
+- **Best for:** Deep integration into existing ROS/ROS2 autonomous navigation stacks (AMRs/AGVs) where the camera is already being used for mapping or obstacle avoidance.
 
 ---
 
