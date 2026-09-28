@@ -1012,8 +1012,7 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
 
         return jsonify({
             "status": "no_qr",
-            "message": " ",
-            "data": " ",
+            "data": "",
             "camera_index": camera.index,
             "timestamp": time.time()
         }), 200
@@ -1074,9 +1073,9 @@ def create_app(camera: Camera, default_retries: int, default_retry_interval: flo
             time.sleep(1.0)
             try:
                 # Systemd allows local user to restart service via polkit without sudo
-                res = subprocess.run(["systemctl", "restart", "qr-http-server"], timeout=5)
+                res = subprocess.run(["systemctl", "restart", "qr_code_read"], timeout=5)
                 if res.returncode != 0:
-                    subprocess.run(["sudo", "-n", "systemctl", "restart", "qr-http-server"], timeout=5)
+                    subprocess.run(["sudo", "-n", "systemctl", "restart", "qr_code_read"], timeout=5)
             except Exception as ex:
                 log.error("Failed to restart service: %s", ex)
             os._exit(0)

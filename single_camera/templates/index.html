@@ -222,7 +222,7 @@
                     document.getElementById('result').style.color = "#059669";
                     document.getElementById('capLink').style.display = "inline-block";
                 } else {
-                    document.getElementById('result').innerText = data.message || "No QR code detected";
+                    document.getElementById('result').innerText = data.message !== undefined ? data.message : "";
                     document.getElementById('result').style.color = "#dc2626";
                 }
             })
